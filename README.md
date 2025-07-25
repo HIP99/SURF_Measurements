@@ -5,10 +5,20 @@ https://github.com/HIP99/RF_Utils
 
 # How to use
 
-SURF_Data.py can retrieve the data from all SURFS from one triggers pkl file
+surf_data.py can retrieve the data from all SURFS from a single triggers pkl file
 
-For an individual Channel use SURF_Channel.py. A SURF name such as "AV1" or SURF index system input, SURF 5, Channel 2 will need to be used. This will give you the data for that channel only
+One should retrive the data and use one of the following to store chosen information
 
-May or may not have been written yet but SURF_Unit.py will give the data for all the channels for a single SURF unit
+- SURFChannel, stores the information for a single channel
 
-SURF offset it specifically for centering pulses
+- SURFUnit, stores the information for a single SURF unit. Each unit has 8 channels
+
+- SURFUnits, stores the infomation of multiple SURF units
+
+For multiple triggers (files) one should loop through data and store them in
+
+- SURFChannelMultiple, Saves channel data for multiple triggers
+
+- SURFUnitMultiple, Saves unit data for multiple triggers
+
+- SURFUnitsMultiple, Saves multiple unit data for multiple triggers

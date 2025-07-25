@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pypdf import PdfWriter
 
-class SURF_Data():
+class SURFData():
     """
     Pretty much all of this was written by Taylor and Payton
     Simply extracts the data from the SURFs pickle file
@@ -11,29 +11,22 @@ class SURF_Data():
     """
     def __init__(self, filepath, *args, **kwargs):
 
-        self.channel_mapping = [4,5,6,7,0,1,2,3]
-        self.surf_mapping = ['FH', 'EH', 'DH', 'CH', 'BH', 'AH', 'LFV', 'GH', 'IH', 'JH', 'KH', 'LH', 'MH', 'LFH', 'GV', 'IV', 'JV', 'KV', 'LV', 'MV', None, 'FV', 'EV', 'DV', 'CV', 'BV', 'AV', None]
-
         self.filepath = filepath
 
         # self.format()
 
-    def get_surf_index(self, surf_name):
-        surf_name = surf[:-1]
-        channel_num = int(surf[-1])
-
-        surf_index = self.surf_mapping.index(surf_name)
-        channel_index = self.channel_mapping[channel_num-1]
-
-        return surf_index, channel_index
-
     @staticmethod
     def load_pkl_file(file_path):
+        """Loads the pickle file"""
         with open(file_path, 'rb') as file:
             data = pickle.load(file)
         return data
     
     def format_data(self):
+        """
+        Returns all the SURF data for 28 SURFS with 8 Channels each. Each channel capture is 1024 samples
+        This is not stored as a field because a lot of this data is not in use. Sub classes will handpick the data they want
+        """
         ## Data is in 449 fragments
         loaded_data = self.load_pkl_file(self.filepath)
 
@@ -46,10 +39,43 @@ class SURF_Data():
         ## There are 1024 samples per capture, 8 channels on a surf, 28 stuff taking data
         data_shaped = np.reshape(data[128:], (28, 8, 1024))
 
-        ##Surf 6, 13, 20 and 27 are not SURF channels
-        return data_shaped
 
-    def save_pdf(self):
+        ##Surf 20 and 27 are not SURF channels
+        ##6 and 13 are LF SURFs
+        return data_shaped
+    
+    def plot_all(self, ax: plt.Axes=None):
+        """
+        This plots all the data with blue lines separating SURFs and red lines separating Channels
+        Useful if you don't know what channels to look at
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        all_data = self.format_data()
+
+        flat_data = all_data.flatten()
+
+        samples = np.arange(0, 8*28*1024, 1)
+
+        ax.plot(samples, flat_data)
+
+        tick_arr = np.arange(8*512, 8*28*1024, 8*1024)
+
+        ax.set_xticks(tick_arr, self.surf_mapping)
+
+
+        for i in range(1,28):
+            for j in range(8):
+                ax.axvline(x = (i*8+j)*1024, alpha = 0.1 , color = 'blue', linestyle = '--')
+            ax.axvline(x = i*8*1024, alpha = 0.4, color = 'red', linestyle = 'dashdot')
+
+        ax.set_xlabel('Samples')
+        ax.set_ylabel('Raw ADC counts')
+        ax.set_title('SURFS total output')
+
+
+    def save_pdf(self, file_name:str):
         self.data = self.format_data()
         ## Plot all the different surfs and channels on seperate graphs
         fn = []
@@ -83,11 +109,16 @@ class SURF_Data():
         for pdf in fn:
             merger.append(pdf)
 
-        merger.write("AMPAt34.pdf")
+        merger.write(f"/Users/hpumphrey/Com/SURF_Measurements/results/{file_name}.pdf")
         merger.close()
     
-
 if __name__ == '__main__':
+    run = 0
+
+    # offsets = np.arange(-200, 200, 20)
+    offsets = np.arange(-50, 50, 10)
+    print(offsets)
+
     from pathlib import Path
     current_dir = Path(__file__).resolve()
 
@@ -95,10 +126,18 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots()
 
-    surf = "GV3"
+    filename = 'hpolplease'
 
-    file_path = parent_dir / 'data' / 'SURF_Data' / f'SURF{surf}' / f'SURF{surf}_1.pkl'
-    pckl = SURF_Data(filepath = file_path)
+    # for offset in offsets:
+    #     filepath = parent_dir / 'data' / filename / f'{filename}off{offset}_{run}.pkl'
+    #     pckl = SURF_Data(filepath = filepath)
+    #     pckl.save_pdf(f'hpolpleaseoff{offset}_{run}')
+
+
+    filepath = parent_dir / 'data' / filename / f'{filename}off{offsets[3]}_{run}.pkl'
+    pckl = SURFData(filepath = filepath)
+
+    pckl.plot_all(ax=ax)
 
     # plt.legend()
-    # plt.show()
+    plt.show()
