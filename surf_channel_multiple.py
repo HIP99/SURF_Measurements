@@ -39,13 +39,15 @@ class SURFChannelMultiple(SURFChannelInfo):
         filepath = self.basepath / f"{self.filename}_0.pkl"
         surf_data = SURFData(filepath=filepath)
         self.triggers = [SURFChannel(data=surf_data.format_data()[self.surf_index][self.rfsoc_channel], info=self.info, surf_channel_name = self.surf_channel_name, surf_index=self.surf_index, channel_index=self.rfsoc_channel, sample_frequency=sample_frequency)]
-
         for run in range(1, length):
             filepath = self.basepath / f"{self.filename}_{run}.pkl"
             surf_data = SURFData(filepath=filepath)
             self.triggers.append(SURFChannel(data=surf_data.format_data()[self.surf_index][self.rfsoc_channel], info=self.info, surf_channel_name = self.surf_channel_name, surf_index=self.surf_index, channel_index=self.rfsoc_channel, sample_frequency=sample_frequency))
-
         self.tag = f"SURF : {self.surf_channel_name} / {self.surf_index}.{self.rfsoc_channel}"
+
+        self.beam_wf = None
+
+        del surf_data
 
     def __iter__(self):
         return iter(self.triggers)
@@ -67,16 +69,50 @@ class SURFChannelMultiple(SURFChannelInfo):
 
             compare_data.correlation_align(beam, max_lag)
             beam.waveform += compare_data
-        return beam
+
+        self.beam_wf = beam
     
     def plot_beamform(self, ax: plt.Axes=None, omit_list:list = []):
         if ax is None:
             fig, ax = plt.subplots()
-        beamform = self.beamform()
-        beamform.plot_waveform(ax = ax)
+        
+        if not self.beam_wf:
+            self.beamform()
+        self.beam_wf.plot_waveform(ax = ax)
         ax.set_ylabel('Time (ns)')
         ax.set_ylabel('Raw ADC counts')
         ax.set_title(f'SURF {self.tag} all channel beamform')
+
+    def plot_beamform_samples(self, ax: plt.Axes=None, omit_list:list = []):
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        if not self.beam_wf:
+            self.beamform()
+        
+        self.beam_wf.plot_samples(ax = ax)
+        ax.set_ylabel('Time (ns)')
+        ax.set_ylabel('Raw ADC counts')
+        ax.set_title(f'SURF {self.tag} all channel beamform')
+
+    def plot_fft(self, ax: plt.Axes=None, f_start=0, f_stop=2000, log = True, **kwargs):
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        if not self.beam_wf:
+            self.beamform()
+
+        self.beam_wf.plot_fft(ax=ax, log = log, f_start=f_start, f_stop=f_stop, **kwargs)
+
+    def plot_fft_smoothed(self, ax: plt.Axes=None, f_start=0, f_stop=2000, log = True, window_size=11, **kwargs):
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        if not self.beam_wf:
+            self.beamform()
+
+        self.beam_wf.plot_fft_smoothed(ax=ax, log = log, f_start=f_start, f_stop=f_stop, window_size=window_size, **kwargs)
+
 
 
 if __name__ == '__main__':
@@ -91,10 +127,11 @@ if __name__ == '__main__':
 
     surf_index = 26
 
-    channel = SURFChannelMultiple(basepath=basepath, filename=filename, length=5, surf_channel_name='AV2')
+    channel = SURFChannelMultiple(basepath=basepath, filename=filename, length=500, surf_channel_name='AV2')
 
     fig, ax = plt.subplots()
-    channel.plot_beamform(ax=ax)
+    # channel.plot_beamform(ax=ax)
+    channel.plot_fft(ax=ax)
 
     plt.legend()
     plt.show()

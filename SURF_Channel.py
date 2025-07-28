@@ -23,7 +23,6 @@ class SURFChannel(SURFChannelInfo):
     Assumes the inputted data is the correct 1-d array.
     """
     def __init__(self, data:np.ndarray, surf_channel_name:str = None, surf_index:int = None, channel_index:int = None, run:int=None, sample_frequency:int = 3e9, surf_info: dict[str, Any] = {}, channel_info: dict[str, Any] = {}, *args, **kwargs):
-
         super().__init__(info=channel_info, surf_info=surf_info, surf_channel_name = surf_channel_name, surf_channel_index = (surf_index, channel_index))
 
         self.run = run
