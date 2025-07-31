@@ -82,43 +82,29 @@ if __name__ == '__main__':
 
     parent_dir = current_dir.parents[1]
 
-    filepath = parent_dir / 'data' / 'all8.pkl'
-
     # filepath = parent_dir / 'data' / 'rftrigger_test2' / 'mi2a_35.pkl'
-    filepath = parent_dir / 'data' / 'rftrigger_test' / 'mi1a_35.pkl'
+    # filepath = parent_dir / 'data' / 'SURF_Data' / '072925_beamformertest1' / '072925_beamformer_6db_1.pkl'
 
-    # filepath = parent_dir / 'data' / 'rftrigger_all_10dboff' / 'mi1a_35.pkl'
+    filepath = parent_dir / 'data' / 'SURF_Data' / 'beamformertrigger' / '72825_beamformertriggertest1_1.pkl'
 
-    # basepath = parent_dir / 'data' / 'rftrigger_test' 
 
     surf_data = SURFData(filepath=filepath)
 
     surf_index = 26
-    channel_index = 5
+    channel_index = 4
 
     surf = SURFChannel(data = surf_data.format_data()[surf_index][channel_index], surf_index=surf_index, channel_index=channel_index)
     
     fig, ax = plt.subplots()
 
-    
-    ####
-    ##Check whether anything was on
-    # arr = []
-    # data = 0
-    # for run in range(500):
-    #     filepath = basepath / f"mi1a_{run}.pkl"
-    #     surf_data = SURF_Data(filepath=filepath)
-    #     for channel_index in range(8):
-    #         surf = SURF_Channel(data = surf_data.format_data()[surf_index][channel_index], surf_index=surf_index, channel_index=channel_index)
 
-    #         data += surf.data.waveform
-
-    # plt.plot(data)
-    ####
-
-    surf.extract_pulse_window(100,200)
+    # surf.extract_pulse_window(100,200)
 
     surf.plot_samples(ax=ax)
+
+
+    print(surf.data.detect_energy())
+    print(surf.data.hilbert_envelope())
     # fig, ax = plt.subplots()
     # surf.plot_fft(ax=ax, f_start=300, f_stop=1200, log=True)
 

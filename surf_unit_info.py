@@ -82,6 +82,64 @@ class SURFUnitInfo():
         if not row.empty:
             self.info = row.iloc[0].to_dict()
 
+    def beamform_loop(self, data_list, tag, correlation_strength_coef=4, correlation_threshold = 120, **kwargs):
+        """
+        Data list should be sorted first
+        Set the 'best' pulse as a reference
+
+        Loop through triggers in new order
+
+        If the detected pulse is stronger relative to the correlation with then use pulse location to align with the reference
+        Since this may be out of phase/off by +-3 find the best correlation within this window
+
+        If detected pulse isn't good enough/doesn't exist do cross correlation
+        If the correlation isn't good enough leave run
+        """
+        from RF_Utils.Pulse import Pulse
+        import numpy as np
+        ref_data = data_list[0].data
+        beam = Pulse(waveform=ref_data.waveform.copy(), tag=tag + ', Beamform')
+        ref_index = beam.hilbert_envelope()[0]
+
+        for data in data_list[1:]:
+
+            compare_data = data.data.copy()
+
+            pulse_index, pulse_strength = compare_data.hilbert_envelope()
+            corr = np.correlate((beam - beam.mean)/beam.std, (compare_data - compare_data.mean)/compare_data.std, mode='full')
+            found_pulse = pulse_strength - np.max(corr) / (np.mean(corr) + correlation_strength_coef * np.std(corr))
+
+            if found_pulse > 0:
+                shift = ref_index - pulse_index
+                compare_data.roll(shift=shift)
+
+                ##Improves phase alignment
+                best_corr = -np.inf
+                best_shift = 0
+                for delta in range(-3, 4):
+                    test_waveform = np.roll(compare_data.waveform, delta)
+                    corr_align = np.correlate(beam.waveform, test_waveform, mode='valid')[0]
+                    if corr_align > best_corr:
+                        best_corr = corr_align
+                        best_shift = delta
+
+                compare_data.roll(shift=best_shift)
+
+                beam.waveform += compare_data
+
+            ##If found pulse isn't good enough
+            else:
+                ##If correlation isn't great
+                if np.max(corr) < correlation_threshold:
+                    continue
+                lags = np.arange(-len(compare_data) + 1, len(beam))
+                max_lag = lags[np.argmax(corr)]
+
+                compare_data.roll(shift=max_lag)
+                beam.waveform += compare_data
+            return beam
+
+
 if __name__ == '__main__':
     channel = SURFUnitInfo(surf_unit='AH')
 

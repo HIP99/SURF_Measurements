@@ -103,7 +103,7 @@ class SURFUnits():
         ax.set_title(f'SURF(s) {surfs} all channel beamform')
 
 if __name__ == '__main__':
-    from SURF_Measurements.surf_data import SURF_Data
+    from SURF_Measurements.surf_data import SURFData
     current_dir = Path(__file__).resolve()
 
     parent_dir = current_dir.parents[1]
@@ -112,7 +112,7 @@ if __name__ == '__main__':
 
     filepath = basepath / 'rftrigger_test' / 'mi1a_35.pkl'
 
-    surf_data = SURF_Data(filepath=filepath)
+    surf_data = SURFData(filepath=filepath)
 
     surf_indices = [5, 26]
 

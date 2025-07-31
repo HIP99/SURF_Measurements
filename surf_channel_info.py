@@ -39,7 +39,7 @@ class SURFChannelInfo(SURFUnitInfo, MIE_Channel):
 
     @property
     def rfsoc_channel(self):
-        return self.info["RFSoC Channel"]    
+        return int(self.info["RFSoC Channel"])    
 
     def _parse_surf_name(self, surf: str):
         if len(surf) != 3 and len(surf) != 4:

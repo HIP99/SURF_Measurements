@@ -9,10 +9,13 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from SURF_Measurements.surf_data import SURFData
+from SURF_Measurements.surf_channel import SURFChannel
 from SURF_Measurements.surf_unit import SURFUnit
 from SURF_Measurements.surf_unit_info import SURFUnitInfo
 
-from typing import Any
+from RF_Utils.Pulse import Pulse
+
+from typing import Any, List
 
 class SURFUnitMultiple(SURFUnitInfo):
     """
@@ -43,6 +46,7 @@ class SURFUnitMultiple(SURFUnitInfo):
 
         self.tag = f"SURF : {self.surf_unit}{self.polarisation} / {self.surf_index}"
 
+        self.beamform_wf = None
 
     def __iter__(self):
         return iter(self.triggers)
@@ -52,8 +56,140 @@ class SURFUnitMultiple(SURFUnitInfo):
     
     def __len__(self):
         return len(self.triggers)
+    
+    def get_all_channels(self):
+        """This is for overall beamforming"""
+        return [
+            channel.data
+            for trigger in self.triggers
+            for channel in trigger.channels
+        ]
+    
+    def get_all_channel_triggers(self, channel_index):
+        return [
+            trigger.channels[channel_index]
+            for trigger in self.triggers
+        ]
 
-    def average_beamform(self, omit_list:list = []):
+    def channel_beamform_single(self, channel_triggers:List[SURFChannel], correlation_strength_coef=4, correlation_threshold = 120):
+        """This is basically whats in surf_channel_multiple"""
+        
+        channel_triggers = sorted(channel_triggers, key=lambda x: x.data.hilbert_envelope()[1], reverse=True)
+        ref_data = channel_triggers[0].data
+        beam = Pulse(waveform=ref_data.waveform.copy(), tag=ref_data.tag + ', New Beamform')
+        ref_index = beam.hilbert_envelope()[0]
+
+        del ref_data
+
+        omitted_triggers = []
+
+        for trigger in channel_triggers[1:]:
+            compare_data = trigger.data.copy()
+
+            pulse_index, pulse_strength = compare_data.hilbert_envelope()
+
+            corr = np.correlate((beam - beam.mean)/beam.std, (compare_data - compare_data.mean)/compare_data.std, mode='full')
+
+            ## Is the found pulses strength is better than cross-correlating
+            found_pulse = pulse_strength - np.max(corr) / (np.mean(corr) + correlation_strength_coef * np.std(corr))
+
+            ##If found pulse is good enough
+            if found_pulse > 0:
+                shift = ref_index - pulse_index
+                compare_data.roll(shift=shift)
+
+                ##Improves phase alignment
+                best_corr = -np.inf
+                best_shift = 0
+                for delta in range(-3, 4):
+                    test_waveform = np.roll(compare_data.waveform, delta)
+                    corr_align = np.correlate(beam.waveform, test_waveform, mode='valid')[0]
+                    if corr_align > best_corr:
+                        best_corr = corr_align
+                        best_shift = delta
+
+                compare_data.roll(shift=best_shift)
+
+                beam.waveform += compare_data
+
+            ##If found pulse isn't good enough
+            else:
+                ##If correlation isn't great
+                if np.max(corr) < correlation_threshold:
+                    omitted_triggers.append(trigger.run)
+                    continue
+                lags = np.arange(-len(compare_data) + 1, len(beam))
+                max_lag = lags[np.argmax(corr)]
+
+                compare_data.roll(shift=max_lag)
+                beam.waveform += compare_data
+
+        # print(f"Triggers {self.basepath} - {self.tag} Omitted {len(omitted_triggers)} triggers\nOmitted triggers : {omitted_triggers}")
+        self.beam_wf = beam
+        return beam
+    
+    def channel_beamform(self, correlation_strength_coef=4.5, correlation_threshold = 128):
+        channel_beams = []
+
+        for channel_index in range(8):
+            channel_beams.append(self.channel_beamform_single(channel_triggers = self.get_all_channel_triggers(channel_index), correlation_strength_coef=correlation_strength_coef, correlation_threshold=correlation_threshold))
+
+        return channel_beams
+
+
+    def overall_beamform(self, correlation_strength_coef=4, correlation_threshold = 120):
+        channels = self.get_all_channels()
+
+        channels = sorted(channels, key=lambda x: x.hilbert_envelope()[1], reverse=True)
+
+        ref_data = channels[0]
+        beam = Pulse(waveform=ref_data.waveform.copy(), tag=self.tag + ', Beamform')
+        ref_index = beam.hilbert_envelope()[0]
+    
+        for channel in channels[1:]:
+            compare_data = channel.copy()
+
+            pulse_index, pulse_strength = compare_data.hilbert_envelope()
+
+            corr = np.correlate((beam - beam.mean)/beam.std, (compare_data - compare_data.mean)/compare_data.std, mode='full')
+
+            ## Is the found pulses strength is better than cross-correlating
+            found_pulse = pulse_strength - np.max(corr) / (np.mean(corr) + correlation_strength_coef * np.std(corr))
+
+            ##If found pulse is good enough
+            if found_pulse > 0:
+                shift = ref_index - pulse_index
+                compare_data.roll(shift=shift)
+
+                ##Improves phase alignment
+                best_corr = -np.inf
+                best_shift = 0
+                for delta in range(-3, 4):
+                    test_waveform = np.roll(compare_data.waveform, delta)
+                    corr_align = np.correlate(beam.waveform, test_waveform, mode='valid')[0]
+                    if corr_align > best_corr:
+                        best_corr = corr_align
+                        best_shift = delta
+
+                compare_data.roll(shift=best_shift)
+
+                beam.waveform += compare_data
+
+            ##If found pulse isn't good enough
+            else:
+                ##If correlation isn't great
+                if np.max(corr) < correlation_threshold:
+                    continue
+                lags = np.arange(-len(compare_data) + 1, len(beam))
+                max_lag = lags[np.argmax(corr)]
+
+                compare_data.roll(shift=max_lag)
+                beam.waveform += compare_data
+
+        # beam.waveform /= len(self.triggers)
+        self.beamform_wf = beam
+
+    def old_beamform(self, omit_list:list = []):
         """
         Average beamform across all triggers
         """
@@ -69,17 +205,81 @@ class SURFUnitMultiple(SURFUnitInfo):
             compare_beam.correlation_align(average_beam, max_lag)
 
             average_beam.waveform += compare_beam
-        average_beam.waveform /= len(self.triggers)
+        # average_beam.waveform /= len(self.triggers)
         return average_beam
     
-    def plot_average_beamform(self, ax: plt.Axes=None, omit_list:list = []):
+    def plot_average_beamform(self, ax: plt.Axes=None, correlation_strength_coef=4, correlation_threshold = 120):
         if ax is None:
             fig, ax = plt.subplots()
-        beamform = self.average_beamform(omit_list=omit_list)
-        beamform.plot_waveform(ax = ax)
+        if self.beamform_wf is None:
+            self.overall_beamform(correlation_strength_coef=correlation_strength_coef, correlation_threshold = correlation_threshold)
+        self.beamform_wf.plot_waveform(ax = ax)
         ax.set_ylabel('Time (ns)')
         ax.set_ylabel('Raw ADC counts')
         ax.set_title(f'{self.tag} , {self.length} runs Beamform')
+
+
+    def plot_average_beamform_samples(self, ax: plt.Axes=None, correlation_strength_coef=4, correlation_threshold = 120, **kwargs):
+        if ax is None:
+            fig, ax = plt.subplots()
+        if self.beamform_wf is None:
+            self.overall_beamform(correlation_strength_coef=correlation_strength_coef, correlation_threshold = correlation_threshold)
+        self.beamform_wf.plot_samples(ax = ax, **kwargs)
+        ax.set_ylabel('Raw ADC counts')
+        ax.set_title(f'{self.tag} , {self.length} runs Beamform')
+
+    def plot_channel_beams(self, correlation_strength_coef=4.5, correlation_threshold = 128, **kwargs):
+        fig, axs = plt.subplots(4, 2, figsize=(12, 10), sharex=True)
+
+        channel_beams = self.channel_beamform(correlation_strength_coef=correlation_strength_coef, correlation_threshold=correlation_threshold)
+
+        for i in range(8):
+            if i < 4:
+                channel = channel_beams[i + 4]  # channels 4 to 7
+                col = 0
+                row = i
+            else:
+                channel = channel_beams[i - 4]  # channels 0 to 3
+                col = 1
+                row = i - 4
+
+            channel.plot_samples(ax=axs[row, col])
+            axs[row, col].set_title(f"{channel.tag}")
+            # Example stats box (customize as needed)
+            stats_text = f"Pulse Quality: {channel.pulse_quality():.2f}"
+            axs[row, col].text(
+                0.95, 0.95, stats_text,
+                transform=axs[row, col].transAxes,
+                fontsize=10,
+                verticalalignment='top',
+                horizontalalignment='right',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
+            )
+            # axs[row, col].set_ylim(-1000, 1000)
+
+        fig.suptitle(f"Channel Beamforms for {self.tag} ({self.length} runs)", fontsize=12)
+
+        plt.tight_layout()
+
+def get_correlation_threshold(unit:SURFUnitMultiple, correlation_strength_coef=120):
+    arr = np.arange(110,180)
+    result = []
+
+    for val in arr:
+        unit.overall_beamform(correlation_threshold=val, correlation_strength_coef=correlation_strength_coef)
+        result.append(unit.beamform_wf.pulse_quality())
+
+    return arr, result
+
+def get_correlation_strength_coef(unit:SURFUnitMultiple, correlation_threshold=4):
+    arr = np.linspace(3, 8, 20)
+    result = []
+
+    for val in arr:
+        unit.overall_beamform(correlation_strength_coef=val, correlation_threshold=correlation_threshold)
+        result.append(unit.beamform_wf.pulse_quality())
+
+    return arr, result
     
 if __name__ == '__main__':
 
@@ -87,13 +287,29 @@ if __name__ == '__main__':
 
     parent_dir = current_dir.parents[1]
 
-    basepath = parent_dir / 'data' / 'rftrigger_test'
+    basepath = parent_dir / 'data' / 'SURF_Data' / '072925_beamformertest1' 
 
-    filename = 'mi1a'
+    filename = '072925_beamformer_6db'
 
     surf_index = 26
 
-    surf_triggers = SURFUnitMultiple(basepath=basepath, filename=filename, length=5, surf_index=surf_index)
+    surf_triggers = SURFUnitMultiple(basepath=basepath, filename=filename, length=100, surf_index=surf_index)
 
-    surf_triggers.plot_average_beamform()
+
+
+    fig, ax = plt.subplots()
+    arr, result = get_correlation_strength_coef(unit=surf_triggers)
+    ax.plot(arr, result)
+
+    fig, ax = plt.subplots()
+    arr, result = get_correlation_threshold(unit=surf_triggers)
+    ax.plot(arr, result)
+
+    fig, ax = plt.subplots()
+
+    surf_triggers.plot_average_beamform_samples(ax=ax, correlation_strength_coef=4.5, correlation_threshold=128)
+
+    surf_triggers.plot_channel_beams()
+
+    # ax.legend()
     plt.show()
