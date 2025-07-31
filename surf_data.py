@@ -44,7 +44,33 @@ class SURFData():
         ##6 and 13 are LF SURFs
         return data_shaped
     
-    def plot_all(self, ax: plt.Axes=None):
+    # def get_data(self):
+    #     loaded_data = self.load_pkl_file(self.filepath)
+    #     print(np.shape(loaded_data))
+
+    def format_data_multiple(self):
+        ## Data is in 449 fragments
+        loaded_data = self.load_pkl_file(self.filepath)
+        
+        trigger_number = np.shape(loaded_data)[0]
+
+        all_data = []
+
+        for trigger_data in loaded_data:
+            data = np.empty((0))
+            for i in range(len(trigger_data)):
+                ## First 8 bytes of each fragments is the header, strip that off (offset = 8) during byte reading and concatenation
+                data = np.concatenate((data, np.frombuffer(trigger_data[i], dtype = np.int16, offset = 8)))
+
+            ## First 128 bytes of data is more headers, remove it
+            ## There are 1024 samples per capture, 8 channels on a surf, 28 stuff taking data
+            data_shaped = np.reshape(data[128:], (28, 8, 1024))
+
+            all_data.append(data_shaped)
+        
+        return all_data
+
+    def plot_all(self, ax: plt.Axes=None, all_data = None):
         """
         This plots all the data with blue lines separating SURFs and red lines separating Channels
         Useful if you don't know what channels to look at
@@ -52,7 +78,8 @@ class SURFData():
         if ax is None:
             fig, ax = plt.subplots()
 
-        all_data = self.format_data()
+        if all_data is None:
+            all_data = self.format_data()
 
         flat_data = all_data.flatten()
 
@@ -60,10 +87,8 @@ class SURFData():
 
         ax.plot(samples, flat_data)
 
-        tick_arr = np.arange(8*512, 8*28*1024, 8*1024)
-
-        ax.set_xticks(tick_arr, self.surf_mapping)
-
+        # tick_arr = np.arange(8*512, 8*28*1024, 8*1024)
+        # ax.set_xticks(tick_arr, self.surf_mapping)
 
         for i in range(1,28):
             for j in range(8):
@@ -114,30 +139,28 @@ class SURFData():
     
 if __name__ == '__main__':
     run = 0
-
-    # offsets = np.arange(-200, 200, 20)
-    offsets = np.arange(-50, 50, 10)
-    print(offsets)
-
     from pathlib import Path
     current_dir = Path(__file__).resolve()
 
     parent_dir = current_dir.parents[1]
 
+# jjbevents
+# jjbevents0dB 874
+# jjbeventsmatched 817
+# jjbeventsthermal 693
+
+    # basepath = parent_dir / 'data' / 'SURF_Data' / 'SURFAH1'
+    # filename = 'SURFAH1_0.pkl'
+
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'jjbevents'
+    filename = 'jjbeventsthermal.pkl'
+
+    pckl = SURFData(filepath = basepath/filename)
+
+    all_data = pckl.format_data_multiple()
+
     fig, ax = plt.subplots()
 
-    filename = 'hpolplease'
+    pckl.plot_all(ax=ax, all_data=all_data[0])
 
-    # for offset in offsets:
-    #     filepath = parent_dir / 'data' / filename / f'{filename}off{offset}_{run}.pkl'
-    #     pckl = SURF_Data(filepath = filepath)
-    #     pckl.save_pdf(f'hpolpleaseoff{offset}_{run}')
-
-
-    filepath = parent_dir / 'data' / filename / f'{filename}off{offsets[3]}_{run}.pkl'
-    pckl = SURFData(filepath = filepath)
-
-    pckl.plot_all(ax=ax)
-
-    # plt.legend()
     plt.show()

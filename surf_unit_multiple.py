@@ -25,24 +25,27 @@ class SURFUnitMultiple(SURFUnitInfo):
     surf = AV
     surf_index = 0-27
     """
-    def __init__(self, basepath:str, filename:str, length:int=1, surf:str = None, surf_index:str = None, sample_frequency:int = 3e9, surf_info: dict[str, Any] = {}, *args, **kwargs):
+    def __init__(self, basepath:str, filename:str, length:int=1, data:List[SURFUnit] = None, surf:str = None, surf_index:str = None, sample_frequency:int = 3e9, surf_info: dict[str, Any] = {}, *args, **kwargs):
         super().__init__(info = surf_info, surf_unit = surf, surf_index=surf_index)
 
         self.basepath = basepath
         self.filename = filename
         self.length = length
 
-        self.triggers = []
+        if data is not None:
+            self.triggers = data
+            self.length = len(self.triggers)
 
-        """This is just so VSCode will recognise that data points are SURF_Unit instances"""
-        filepath = self.basepath / f"{self.filename}_0.pkl"
-        surf_data = SURFData(filepath=filepath)
-        self.triggers = [SURFUnit(data=surf_data.format_data(), surf_info=self.info, surf = self.surf_unit, surf_index=self.surf_index, sample_frequency=sample_frequency)]
-
-        for run in range(1, length):
-            filepath = self.basepath / f"{self.filename}_{run}.pkl"
+        else:
+            """This is just so VSCode will recognise that data points are SURF_Unit instances"""
+            filepath = self.basepath / f"{self.filename}_0.pkl"
             surf_data = SURFData(filepath=filepath)
-            self.triggers.append(SURFUnit(data=surf_data.format_data(), surf_info=self.info, surf = self.surf_unit, surf_index=self.surf_index,sample_frequency=sample_frequency))
+            self.triggers = [SURFUnit(data=surf_data.format_data(), surf_info=self.info, surf = self.surf_unit, surf_index=self.surf_index, sample_frequency=sample_frequency)]
+
+            for run in range(1, length):
+                filepath = self.basepath / f"{self.filename}_{run}.pkl"
+                surf_data = SURFData(filepath=filepath)
+                self.triggers.append(SURFUnit(data=surf_data.format_data(), surf_info=self.info, surf = self.surf_unit, surf_index=self.surf_index,sample_frequency=sample_frequency))
 
         self.tag = f"SURF : {self.surf_unit}{self.polarisation} / {self.surf_index}"
 
@@ -202,7 +205,7 @@ class SURFUnitMultiple(SURFUnitInfo):
             lags = np.arange(-len(compare_beam) + 1, len(average_beam))
             max_lag = lags[np.argmax(corr)]
 
-            compare_beam.correlation_align(average_beam, max_lag)
+            compare_beam.roll(shift=max_lag)
 
             average_beam.waveform += compare_beam
         # average_beam.waveform /= len(self.triggers)
@@ -216,7 +219,8 @@ class SURFUnitMultiple(SURFUnitInfo):
         self.beamform_wf.plot_waveform(ax = ax)
         ax.set_ylabel('Time (ns)')
         ax.set_ylabel('Raw ADC counts')
-        ax.set_title(f'{self.tag} , {self.length} runs Beamform')
+        # ax.set_title(f'Test : {self.basepath.stem} - {self.tag} , {self.length} runs Beamform')
+        ax.set_title(f'Test : {self.filename} - {self.tag} , {self.length} runs Beamform')
 
 
     def plot_average_beamform_samples(self, ax: plt.Axes=None, correlation_strength_coef=4, correlation_threshold = 120, **kwargs):
@@ -226,7 +230,7 @@ class SURFUnitMultiple(SURFUnitInfo):
             self.overall_beamform(correlation_strength_coef=correlation_strength_coef, correlation_threshold = correlation_threshold)
         self.beamform_wf.plot_samples(ax = ax, **kwargs)
         ax.set_ylabel('Raw ADC counts')
-        ax.set_title(f'{self.tag} , {self.length} runs Beamform')
+        ax.set_title(f'Test : {self.basepath.stem} - {self.tag} , {self.length} runs Beamform')
 
     def plot_channel_beams(self, correlation_strength_coef=4.5, correlation_threshold = 128, **kwargs):
         fig, axs = plt.subplots(4, 2, figsize=(12, 10), sharex=True)
@@ -246,18 +250,19 @@ class SURFUnitMultiple(SURFUnitInfo):
             channel.plot_samples(ax=axs[row, col])
             axs[row, col].set_title(f"{channel.tag}")
             # Example stats box (customize as needed)
-            stats_text = f"Pulse Quality: {channel.pulse_quality():.2f}"
-            axs[row, col].text(
-                0.95, 0.95, stats_text,
-                transform=axs[row, col].transAxes,
-                fontsize=10,
-                verticalalignment='top',
-                horizontalalignment='right',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
-            )
+            # stats_text = f"Pulse Quality: {channel.pulse_quality():.2f}"
+            # axs[row, col].text(
+            #     0.95, 0.95, stats_text,
+            #     transform=axs[row, col].transAxes,
+            #     fontsize=10,
+            #     verticalalignment='top',
+            #     horizontalalignment='right',
+            #     bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
+            # )
             # axs[row, col].set_ylim(-1000, 1000)
 
-        fig.suptitle(f"Channel Beamforms for {self.tag} ({self.length} runs)", fontsize=12)
+        # fig.suptitle(f"Test : {self.basepath.stem} - Channel Beamforms for {self.tag} ({self.length} runs)", fontsize=12)
+        fig.suptitle(f"Test : {self.filename} - Channel Beamforms for {self.tag} ({self.length} runs)", fontsize=12)
 
         plt.tight_layout()
 
@@ -272,7 +277,7 @@ def get_correlation_threshold(unit:SURFUnitMultiple, correlation_strength_coef=1
     return arr, result
 
 def get_correlation_strength_coef(unit:SURFUnitMultiple, correlation_threshold=4):
-    arr = np.linspace(3, 8, 20)
+    arr = np.linspace(4, 10, 20)
     result = []
 
     for val in arr:
@@ -288,28 +293,38 @@ if __name__ == '__main__':
     parent_dir = current_dir.parents[1]
 
     basepath = parent_dir / 'data' / 'SURF_Data' / '072925_beamformertest1' 
-
     filename = '072925_beamformer_6db'
 
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_test' 
+    filename = 'mi1a'
+
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'beamformertrigger' 
+    filename = '72825_beamformertriggertest1'
+
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_all_10dboff' 
+    filename = 'mi1a'
+
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_test2' 
+    filename = 'mi2a'
     surf_index = 26
 
     surf_triggers = SURFUnitMultiple(basepath=basepath, filename=filename, length=100, surf_index=surf_index)
 
+    correlation_strength_coef = 4.325
+    correlation_threshold = 117
 
+    # fig, ax = plt.subplots()
+    # arr, result = get_correlation_strength_coef(unit=surf_triggers, correlation_threshold=correlation_threshold)
+    # ax.plot(arr, result)
+
+    # fig, ax = plt.subplots()
+    # arr, result = get_correlation_threshold(unit=surf_triggers, correlation_strength_coef=correlation_strength_coef)
+    # ax.plot(arr, result)
 
     fig, ax = plt.subplots()
-    arr, result = get_correlation_strength_coef(unit=surf_triggers)
-    ax.plot(arr, result)
 
-    fig, ax = plt.subplots()
-    arr, result = get_correlation_threshold(unit=surf_triggers)
-    ax.plot(arr, result)
+    surf_triggers.plot_average_beamform_samples(ax=ax, correlation_strength_coef=correlation_strength_coef, correlation_threshold=correlation_threshold)
 
-    fig, ax = plt.subplots()
+    surf_triggers.plot_channel_beams(correlation_strength_coef=correlation_strength_coef, correlation_threshold=correlation_threshold)
 
-    surf_triggers.plot_average_beamform_samples(ax=ax, correlation_strength_coef=4.5, correlation_threshold=128)
-
-    surf_triggers.plot_channel_beams()
-
-    # ax.legend()
     plt.show()
