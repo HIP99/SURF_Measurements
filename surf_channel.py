@@ -27,7 +27,9 @@ class SURFChannel(SURFChannelInfo):
 
         self.run = run
 
-        tag = f"SURF : {self.surf_channel_name} / {self.surf_index}.{self.rfsoc_channel}" + (", run_"+str(self.run) if self.run is not None else "")
+        # tag = f"SURF : {self.surf_channel_name} / {self.surf_index}.{self.rfsoc_channel}" + (", run_"+str(self.run) if self.run is not None else "")
+        tag = f"SURF : {self.surf_channel_name} / {self.surf_index}.{self.rfsoc_channel}"
+        
         self.data = Pulse(waveform=data, sample_frequency=sample_frequency, tag=tag)
 
     def __len__(self):

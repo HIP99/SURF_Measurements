@@ -14,7 +14,7 @@ from SURF_Measurements.surf_channel_info import SURFChannelInfo
 from RF_Utils.Pulse import Pulse
 from RF_Utils.Waveform import Waveform
 
-from typing import Any
+from typing import Any, List
 
 class SURFChannelMultiple(SURFChannelInfo):
     """
@@ -25,7 +25,7 @@ class SURFChannelMultiple(SURFChannelInfo):
     surf_index = 0-27
     channel_index = 0-7, is the rfsoc channel not the surf channel
     """
-    def __init__(self, basepath:str, filename:str, length:int=1, surf_channel_name:str = None, surf_index:int = None, channel_index:int = None, sample_frequency:int = 3e9, surf_info: dict[str, Any] = {}, channel_info: dict[str, Any] = {}, *args, **kwargs):
+    def __init__(self, basepath:str, filename:str, length:int=1, data:List[SURFChannel] = None, surf_channel_name:str = None, surf_index:int = None, channel_index:int = None, sample_frequency:int = 3e9, surf_info: dict[str, Any] = {}, channel_info: dict[str, Any] = {}, *args, **kwargs):
 
         super().__init__(info = channel_info, surf_info=surf_info, surf_channel_name = surf_channel_name, surf_channel_index=(surf_index, channel_index))
 
@@ -35,19 +35,25 @@ class SURFChannelMultiple(SURFChannelInfo):
 
         self.triggers = []
 
-        """This is just so VSCode will recognise that data points are SURF_Unit instances"""
-        filepath = self.basepath / f"{self.filename}_0.pkl"
-        surf_data = SURFData(filepath=filepath)
-        self.triggers = [SURFChannel(data=surf_data.format_data()[self.surf_index][self.rfsoc_channel], info=self.info, surf_channel_name = self.surf_channel_name, surf_index=self.surf_index, channel_index=self.rfsoc_channel, sample_frequency=sample_frequency, run=0)]
-        for run in range(1, length):
-            filepath = self.basepath / f"{self.filename}_{run}.pkl"
-            surf_data = SURFData(filepath=filepath)
-            self.triggers.append(SURFChannel(data=surf_data.format_data()[self.surf_index][self.rfsoc_channel], info=self.info, surf_channel_name = self.surf_channel_name, surf_index=self.surf_index, channel_index=self.rfsoc_channel, sample_frequency=sample_frequency, run=run))
-        self.tag = f"SURF : {self.surf_channel_name} / {self.surf_index}.{self.rfsoc_channel}"
+        if data is not None:
+            self.triggers = data
+            self.length = len(self.triggers)
 
+        else:
+            """This is just so VSCode will recognise that data points are SURF_Unit instances"""
+            filepath = self.basepath / f"{self.filename}_0.pkl"
+            surf_data = SURFData(filepath=filepath)
+            self.triggers = [SURFChannel(data=surf_data.format_data()[self.surf_index][self.rfsoc_channel], info=self.info, surf_channel_name = self.surf_channel_name, surf_index=self.surf_index, channel_index=self.rfsoc_channel, sample_frequency=sample_frequency, run=0)]
+            for run in range(1, length):
+                filepath = self.basepath / f"{self.filename}_{run}.pkl"
+                surf_data = SURFData(filepath=filepath)
+                self.triggers.append(SURFChannel(data=surf_data.format_data()[self.surf_index][self.rfsoc_channel], info=self.info, surf_channel_name = self.surf_channel_name, surf_index=self.surf_index, channel_index=self.rfsoc_channel, sample_frequency=sample_frequency, run=run))
+            
+            del surf_data
+
+        self.tag = f"SURF : {self.surf_channel_name} / {self.surf_index}.{self.rfsoc_channel}"
         self.beam_wf = None
 
-        del surf_data
 
     def __iter__(self):
         return iter(self.triggers)
@@ -57,6 +63,106 @@ class SURFChannelMultiple(SURFChannelInfo):
     
     def __len__(self):
         return len(self.triggers)
+
+
+    def create_beamform_animation(self, save_path="beamform_animation.mp4"):
+        from matplotlib.animation import FuncAnimation
+        sorted_triggers = sorted(self.triggers, key=lambda x: x.data.hilbert_envelope(range = (460, 540))[1], reverse=True)
+        ref_data = sorted_triggers[0].data
+        beam = Pulse(waveform=ref_data.waveform.copy(), tag=self.tag + ', New Beamform')
+        ref_index = beam.hilbert_envelope()[0]
+
+        frames = []  # List of (beam_before, trigger, aligned_trigger, beam_after)
+        count = 1  # Start with reference trigger
+        omitted_triggers = []
+
+        for trigger in sorted_triggers[1:]:
+            compare_data = trigger.data.copy()
+            pulse_index, pulse_strength = compare_data.hilbert_envelope()
+
+            beam_z = (beam - beam.mean) / beam.std
+            comp_z = (compare_data - compare_data.mean) / compare_data.std
+            corr = np.correlate(beam_z, comp_z, mode='full')
+
+            found_pulse = pulse_strength - np.max(corr) / (np.mean(corr) + 4 * np.std(corr))
+            beam_before = beam.waveform.copy()
+
+            frames.append(beam_before, None, None)
+
+            frames.append(beam_before, compare_data.waveform, None)
+
+            if found_pulse > 0:
+                shift = ref_index - pulse_index
+                compare_data.roll(shift)
+
+                best_corr = -np.inf
+                best_shift = 0
+                for delta in range(-3, 4):
+                    test_waveform = np.roll(compare_data.waveform, delta)
+                    corr_align = np.correlate(beam.waveform, test_waveform, mode='valid')[0]
+                    if corr_align > best_corr:
+                        best_corr = corr_align
+                        best_shift = delta
+                compare_data.roll(shift=best_shift)
+                aligned = compare_data.waveform.copy()
+
+                beam.waveform += compare_data.waveform
+
+            else:
+                if np.max(corr) < 120:
+                    omitted_triggers.append(trigger.run)
+                    continue
+                lags = np.arange(-len(compare_data.waveform) + 1, len(beam.waveform))
+                max_lag = lags[np.argmax(corr)]
+                compare_data.roll(shift=max_lag)
+                aligned = compare_data.waveform.copy()
+
+                beam.waveform += compare_data.waveform
+            frames.append((beam_before, aligned, None))
+
+            # frames.append((beam_after))
+
+            count += 1
+
+        # Normalize final beam
+        normalized_beam = beam.waveform / count
+
+        frames.append((None, None, None, normalized_beam))
+
+        # Create animation
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        line_beam, = ax.plot([], [], label="Beam", color="blue")
+        line_trigger, = ax.plot([], [], label="Trigger", color="red", alpha=0.5)
+        line_aligned, = ax.plot([], [], label="Aligned", color="green", alpha=0.5)
+
+        def init():
+            ax.set_xlim(0, len(beam.waveform))
+            ax.set_ylim(-1.5*np.max(np.abs(beam.waveform)), 1.5*np.max(np.abs(beam.waveform)))
+            ax.set_title("Beamforming Process")
+            ax.legend()
+            return line_beam, line_trigger, line_aligned
+
+        def update(frame):
+            beam_before, trigger, aligned, beam_after = frame
+            ax.set_title("Beamforming Step")
+            if beam_before is not None:
+                line_beam.set_data(np.arange(len(beam_before)), beam_before)
+                line_trigger.set_data(np.arange(len(trigger)), trigger)
+                line_aligned.set_data(np.arange(len(aligned)), aligned)
+            else:
+                # Final frame
+                line_beam.set_data(np.arange(len(beam_after)), beam_after)
+                line_trigger.set_data([], [])
+                line_aligned.set_data([], [])
+                ax.set_title("Final Normalized Beam")
+            return line_beam, line_trigger, line_aligned
+
+        anim = FuncAnimation(fig, update, frames=frames, init_func=init, blit=True, interval=300)
+
+        anim.save("beamform_animation.gif", writer='pillow', fps=2)
+        plt.close()
+        print(f"Animation saved to {save_path}")
     
     def other_beamform(self):
         """
@@ -83,13 +189,34 @@ class SURFChannelMultiple(SURFChannelInfo):
         self.beam_wf = beam
 
 
-    def beamform2(self, correlation_strength_coef=4, correlation_threshold = 120):
+    def beamform_attempt(self, correlation_strength_coef=4, correlation_threshold = 120):
         sorted_triggers = sorted(self.triggers, key=lambda x: x.data.hilbert_envelope()[1], reverse=True)
 
         self.beam_wf = self.beamform_loop(data_list=sorted_triggers, tag=self.tag, correlation_strength_coef=correlation_strength_coef, correlation_threshold=correlation_threshold)
 
-
-    def beamform(self, correlation_strength_coef=4, correlation_threshold = 120):
+    def beamform(self, reference:Pulse, **kwargs):
+        sorted_triggers = sorted(self.triggers, key=lambda x: x.data.hilbert_envelope(range = (460, 540))[1], reverse=True)
+        omitted_triggers = []
+        
+        beam = Pulse(waveform=np.zeros(1024), tag=self.tag + ', New Beamform')
+        
+        for trigger in sorted_triggers:
+            compare_data = trigger.data.copy()
+            
+            trigger_run = compare_data.match_filter_pulse(reference=reference)
+            if trigger_run is not None:
+                beam.waveform += compare_data
+                
+            else:
+                omitted_triggers.append(trigger.run)
+            
+        print(f"Percent of triggers used : {100*(self.length-len(omitted_triggers))/self.length:.2f}%")
+        
+        self.beam_wf = beam
+        
+        self.beam_wf.waveform = self.beam_wf.waveform/(self.length-len(omitted_triggers))
+        
+    def beamform2(self, correlation_strength_coef=4, correlation_threshold = 120):
         """
         Sort the triggers/channels by best pulse
         Set the 'best' pulse as a reference
@@ -102,14 +229,18 @@ class SURFChannelMultiple(SURFChannelInfo):
         If detected pulse isn't good enough/doesn't exist do cross correlation
         If the correlation isn't good enough leave run
         """
-        sorted_triggers = sorted(self.triggers, key=lambda x: x.data.hilbert_envelope()[1], reverse=True)
+        sorted_triggers = sorted(self.triggers, key=lambda x: x.data.hilbert_envelope(range = (460, 540))[1], reverse=True)
         ref_data = sorted_triggers[0].data
-        beam = Pulse(waveform=ref_data.waveform.copy(), tag=self.tag + ', New Beamform')
+        beam = Pulse(waveform=ref_data.waveform.copy(), tag=self.tag + ', Beamform')
         ref_index = beam.hilbert_envelope()[0]
 
         omitted_triggers = []
 
+        test_arr = []
+
+        i=0
         for trigger in sorted_triggers[1:]:
+            i+=1
             compare_data = trigger.data.copy()
 
             pulse_index, pulse_strength = compare_data.hilbert_envelope()
@@ -118,6 +249,11 @@ class SURFChannelMultiple(SURFChannelInfo):
 
             ## Is the found pulses strength is better than cross-correlating
             found_pulse = pulse_strength - np.max(corr) / (np.mean(corr) + correlation_strength_coef * np.std(corr))
+
+            # if 100 < i < 120:
+            #     fig,ax=plt.subplots()
+            #     beam.plot_samples(ax=ax)
+            
 
             ##If found pulse is good enough
             if found_pulse > 0:
@@ -150,6 +286,12 @@ class SURFChannelMultiple(SURFChannelInfo):
                 compare_data.roll(shift=max_lag)
                 beam.waveform += compare_data
 
+            # if 100 < i < 120:
+            #     compare_data.plot_samples(ax=ax)
+            test_arr.append(beam.pulse_quality())
+        fig,ax=plt.subplots()
+        ax.plot(test_arr)
+
         print(f"Triggers {self.basepath} - {self.tag} Omitted {len(omitted_triggers)} triggers\nOmitted triggers : {omitted_triggers}")
         self.beam_wf = beam
 
@@ -179,7 +321,7 @@ class SURFChannelMultiple(SURFChannelInfo):
         self.beam_wf.plot_waveform(ax = ax, mask=mask)
         ax.set_ylabel('Time (ns)')
         ax.set_ylabel('Raw ADC counts')
-        ax.set_title(f'SURF {self.tag}, {self.length} runs Beamform')
+        ax.set_title(f'{self.tag}, {self.length} runs Beamform')
 
     def plot_beamform_samples(self, ax: plt.Axes=None, correlation_strength_coef=4, correlation_threshold = 120, mask = slice(None), **kwargs):
         if ax is None:
@@ -191,7 +333,7 @@ class SURFChannelMultiple(SURFChannelInfo):
         self.beam_wf.plot_samples(ax = ax, mask = mask, **kwargs)
         ax.set_ylabel('Time (ns)')
         ax.set_ylabel('Raw ADC counts')
-        ax.set_title(f'SURF {self.tag}, {self.length} runs Beamform')
+        ax.set_title(f'file {self.filename} - {self.tag}, {self.length} runs Beamform')
 
     def plot_fft(self, ax: plt.Axes=None, f_start=0, f_stop=2000, log = True, **kwargs):
         if ax is None:
@@ -242,8 +384,8 @@ if __name__ == '__main__':
     basepath = parent_dir / 'data' / 'SURF_Data' / 'beamformertrigger' 
     filename = '72825_beamformertriggertest1'
 
-    basepath = parent_dir / 'data' / 'SURF_Data' / '072925_beamformertest1' 
-    filename = '072925_beamformer_6db'
+    # basepath = parent_dir / 'data' / 'SURF_Data' / '072925_beamformertest1' 
+    # filename = '072925_beamformer_6db'
 
     surf_index = 26
     surf_channel_name = 'AV1'
@@ -260,7 +402,7 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots()
     channel.beamform(correlation_strength_coef=4.5, correlation_threshold=128)
-    channel.plot_beamform(ax)
+    channel.plot_beamform_samples(ax, mask=(slice(250,1024-250)))
     
     ax.legend()
     plt.show()

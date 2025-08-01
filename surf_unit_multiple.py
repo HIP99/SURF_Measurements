@@ -32,6 +32,8 @@ class SURFUnitMultiple(SURFUnitInfo):
         self.filename = filename
         self.length = length
 
+        self.triggers = []
+
         if data is not None:
             self.triggers = data
             self.length = len(self.triggers)
@@ -79,14 +81,21 @@ class SURFUnitMultiple(SURFUnitInfo):
         
         channel_triggers = sorted(channel_triggers, key=lambda x: x.data.hilbert_envelope()[1], reverse=True)
         ref_data = channel_triggers[0].data
-        beam = Pulse(waveform=ref_data.waveform.copy(), tag=ref_data.tag + ', New Beamform')
+        beam = Pulse(waveform=ref_data.waveform.copy(), tag=ref_data.tag + ', Beamform')
         ref_index = beam.hilbert_envelope()[0]
+
+        center_index = 512
+
+        shift = center_index - ref_index
+        beam.roll(shift=shift)
+
+        ref_index=center_index
 
         del ref_data
 
         omitted_triggers = []
 
-        for trigger in channel_triggers[1:]:
+        for i, trigger in enumerate(channel_triggers[1:]):
             compare_data = trigger.data.copy()
 
             pulse_index, pulse_strength = compare_data.hilbert_envelope()
@@ -148,6 +157,12 @@ class SURFUnitMultiple(SURFUnitInfo):
         ref_data = channels[0]
         beam = Pulse(waveform=ref_data.waveform.copy(), tag=self.tag + ', Beamform')
         ref_index = beam.hilbert_envelope()[0]
+        center_index = 512
+
+        shift = center_index - ref_index
+        beam.roll(shift=shift)
+
+        ref_index=center_index
     
         for channel in channels[1:]:
             compare_data = channel.copy()
@@ -175,6 +190,8 @@ class SURFUnitMultiple(SURFUnitInfo):
                         best_shift = delta
 
                 compare_data.roll(shift=best_shift)
+
+                print(shift)
 
                 beam.waveform += compare_data
 
@@ -230,7 +247,8 @@ class SURFUnitMultiple(SURFUnitInfo):
             self.overall_beamform(correlation_strength_coef=correlation_strength_coef, correlation_threshold = correlation_threshold)
         self.beamform_wf.plot_samples(ax = ax, **kwargs)
         ax.set_ylabel('Raw ADC counts')
-        ax.set_title(f'Test : {self.basepath.stem} - {self.tag} , {self.length} runs Beamform')
+        # ax.set_title(f'Test : {self.basepath.stem} - {self.tag} , {self.length} runs Beamform')
+        ax.set_title(f'Test : {self.filename} - {self.tag} , {self.length} runs Beamform')
 
     def plot_channel_beams(self, correlation_strength_coef=4.5, correlation_threshold = 128, **kwargs):
         fig, axs = plt.subplots(4, 2, figsize=(12, 10), sharex=True)
@@ -298,17 +316,17 @@ if __name__ == '__main__':
     basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_test' 
     filename = 'mi1a'
 
-    basepath = parent_dir / 'data' / 'SURF_Data' / 'beamformertrigger' 
-    filename = '72825_beamformertriggertest1'
+    # basepath = parent_dir / 'data' / 'SURF_Data' / 'beamformertrigger' 
+    # filename = '72825_beamformertriggertest1'
 
-    basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_all_10dboff' 
-    filename = 'mi1a'
+    # basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_all_10dboff' 
+    # filename = 'mi1a'
 
-    basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_test2' 
-    filename = 'mi2a'
+    # basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_test2' 
+    # filename = 'mi2a'
     surf_index = 26
 
-    surf_triggers = SURFUnitMultiple(basepath=basepath, filename=filename, length=100, surf_index=surf_index)
+    surf_triggers = SURFUnitMultiple(basepath=basepath, filename=filename, length=500, surf_index=surf_index)
 
     correlation_strength_coef = 4.325
     correlation_threshold = 117
