@@ -22,13 +22,14 @@ class SURFData():
             data = pickle.load(file)
         return data
     
-    def format_data(self):
+    def format_data(self, loaded_data=None):
         """
         Returns all the SURF data for 28 SURFS with 8 Channels each. Each channel capture is 1024 samples
         This is not stored as a field because a lot of this data is not in use. Sub classes will handpick the data they want
         """
         ## Data is in 449 fragments
-        loaded_data = self.load_pkl_file(self.filepath)
+        if loaded_data is None:
+            loaded_data = self.load_pkl_file(self.filepath)
 
         data = np.empty((0))
         for i in range(len(loaded_data)):
@@ -49,26 +50,15 @@ class SURFData():
     #     print(np.shape(loaded_data))
 
     def format_data_multiple(self):
-        ## Data is in 449 fragments
-        loaded_data = self.load_pkl_file(self.filepath)
-        
-        trigger_number = np.shape(loaded_data)[0]
+        """
+        This for when your pickle file contains multiple runs
+        """
+        loaded_data_multiple = self.load_pkl_file(self.filepath)
+        all_triggers = []
 
-        all_data = []
-
-        for trigger_data in loaded_data:
-            data = np.empty((0))
-            for i in range(len(trigger_data)):
-                ## First 8 bytes of each fragments is the header, strip that off (offset = 8) during byte reading and concatenation
-                data = np.concatenate((data, np.frombuffer(trigger_data[i], dtype = np.int16, offset = 8)))
-
-            ## First 128 bytes of data is more headers, remove it
-            ## There are 1024 samples per capture, 8 channels on a surf, 28 stuff taking data
-            data_shaped = np.reshape(data[128:], (28, 8, 1024))
-
-            all_data.append(data_shaped)
-        
-        return all_data
+        for loaded_data in loaded_data_multiple:
+            all_triggers.append(self.format_data(loaded_data=loaded_data))
+        return all_triggers
 
     def plot_all(self, ax: plt.Axes=None, all_data = None):
         """
@@ -83,16 +73,17 @@ class SURFData():
 
         flat_data = all_data.flatten()
 
-        samples = np.arange(0, 8*28*1024, 1)
+        # samples = np.arange(0, 8*28*1024, 1)
+        ax.plot(flat_data)
 
-        ax.plot(samples, flat_data)
+        surf_mapping = ['FH', 'EH', 'DH', 'CH', 'BH', 'AH', 'LFV', 'GH', 'IH', 'JH', 'KH', 'LH', 'MH', 'LFH', 'GV', 'IV', 'JV', 'KV', 'LV', 'MV', None, 'FV', 'EV', 'DV', 'CV', 'BV', 'AV', None]
 
-        # tick_arr = np.arange(8*512, 8*28*1024, 8*1024)
-        # ax.set_xticks(tick_arr, self.surf_mapping)
+        tick_arr = np.arange(8*512, 8*28*1024, 8*1024)
+        ax.set_xticks(tick_arr, surf_mapping)
 
-        for i in range(1,28):
+        for i in range(0,28):
             for j in range(8):
-                ax.axvline(x = (i*8+j)*1024, alpha = 0.1 , color = 'blue', linestyle = '--')
+                ax.axvline(x = (i*8+j)*1024, alpha = 0.1 , color = 'black', linestyle = '--')
             ax.axvline(x = i*8*1024, alpha = 0.4, color = 'red', linestyle = 'dashdot')
 
         ax.set_xlabel('Samples')
@@ -134,6 +125,7 @@ class SURFData():
         for pdf in fn:
             merger.append(pdf)
 
+        ## Maybe change this if you're not me
         merger.write(f"/Users/hpumphrey/Com/SURF_Measurements/results/{file_name}.pdf")
         merger.close()
     
@@ -144,23 +136,17 @@ if __name__ == '__main__':
 
     parent_dir = current_dir.parents[1]
 
-# jjbevents
-# jjbevents0dB 874
-# jjbeventsmatched 817
-# jjbeventsthermal 693
-
-    # basepath = parent_dir / 'data' / 'SURF_Data' / 'SURFAH1'
     # filename = 'SURFAH1_0.pkl'
 
-    basepath = parent_dir / 'data' / 'SURF_Data' / 'jjbevents'
-    filename = 'jjbeventsthermal.pkl'
+    basepath = parent_dir / 'data' / 'SURF_Data' / '072925_beamformertest1'
+    filename = '072925_beamformer_6db_0.pkl'
 
     pckl = SURFData(filepath = basepath/filename)
 
-    all_data = pckl.format_data_multiple()
+    data = pckl.format_data()
 
     fig, ax = plt.subplots()
 
-    pckl.plot_all(ax=ax, all_data=all_data[0])
+    pckl.plot_all(ax=ax)
 
     plt.show()

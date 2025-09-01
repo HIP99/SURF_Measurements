@@ -10,97 +10,103 @@ from pathlib import Path
 
 from SURF_Measurements.surf_unit import SURFUnit
 from SURF_Measurements.surf_unit_info import SURFUnitInfo
+from SURF_Measurements.surf_trigger import SURFTrigger
+from SURF_Measurements.surf_channel import SURFChannel
 from RF_Utils.Pulse import Pulse
-from RF_Utils.Waveform import Waveform
 
-class SURFUnits():
+from typing import List
+
+class SURFUnits(SURFTrigger):
     """
     Stores multiple SURF units for an individual trigger
     """
-    def __init__(self, data:np.ndarray, surf_units:list = [], surf_indices:list = [], sample_frequency:int = 3e9, run:int = None, *args, **kwargs):
+    def __init__(self, data:np.ndarray|List[SURFUnit], info:List[SURFUnitInfo]|dict[str,List], run:int = None, *args, **kwargs):
 
-        self.surf_info = []
+        self.info:List[SURFUnitInfo]
+        self.units:List[SURFUnit]
 
-        if surf_units:
-            for surf_unit in surf_units:
-                self.surf_info.append(SURFUnitInfo(surf_unit=surf_unit))
-        elif surf_indices:
-            for surf_index in surf_indices:
-                self.surf_info.append(SURFUnitInfo(surf_index=surf_index))
+        if isinstance(info, dict):
+            self.info = []
+            for values in zip(*info.values()):
+                unique_unit_info = dict(zip(info.keys(), values))
+
+                unit_info = SURFUnitInfo(**unique_unit_info)
+                self.info.append(unit_info)
+        elif isinstance(info[0], SURFUnitInfo):
+            """
+            This will break at this point if the input is wrong. If the input is wrong we'd need to stop anyway
+            """
+            self.info = info
+
+        if isinstance(data, np.ndarray):
+            self.units:List[SURFUnit] = []
+            for unit_info in self.info:
+                self.units.append(SURFUnit(data=data, info=unit_info))
+        elif isinstance(data[0], SURFUnit):
+            self.units = data
         else:
-            raise ValueError("You have not given a valid range of SURF units to use")
+            raise TypeError("Data was not inputted in a compatible format.")
 
-        self.surfs = {}
-
-        for surf in self.surf_info:
-            self.surfs[surf['Surf Index']] = SURFUnit(data = data, surf_info=surf.info, surf_index = surf['Surf Index'], sample_frequency = sample_frequency, run = run, *args, **kwargs)
+        self.beamform_wf:Pulse = None
 
     def __iter__(self):
-        return iter(self.surfs.values())
+        return iter(self.units)
+
+    def __array__(self):
+        return self.units
     
-    def __getitem__(self, key):
-        return self.surfs[key]
-
-    def __len__(self):
-        return len(self.surfs)
-
-    def __contains__(self, key):
-        ## key in instance
-        return key in self.surfs
-
-    def keys(self):
-        return self.surfs.keys()
-
-    def values(self):
-        return self.surfs.values()
-
-    def items(self):
-        return self.surfs.items()
+    @property
+    def channels(self) -> List[SURFChannel]:
+        return [ch for unit in self.units for ch in unit.channels]
     
+    def add_unit(self, data, surf_index:int):
+        self.units.append(SURFUnit(data = data[surf_index], surf_index=surf_index, run=self.run))
 
-    def extract_pulse_window(self, pre=20, post=120):
-        for surf in self.values():
-            for channel in surf.channels:
-                channel.extract_pulse_window(pre=pre, post=post)
+    def remove_channel(self, surf_indices:tuple):
+        super().remove_channel(surf_indices)
 
+        for unit in self.units:
+            for i, channel in enumerate(unit.channels):
+                if (channel.info.surf_index == surf_indices[0] and
+                    channel.info.rfsoc_channel == surf_indices[1]):
+                    del self.channels[i]
+                    break
+
+    def beamform_units(self) -> List[Pulse]:
+        unit_beamforms:List[Pulse] = []
+        for unit in self.units:
+            if not unit.beamform_wf:
+                unit.beamform()
+            unit.beamform_wf.tag = unit.tag
+            unit_beamforms.append(unit.beamform_wf)
+        return unit_beamforms
     
-    def beamform(self, omit_list:list = []):
-        """
-        Omit list will need to be a list of lists, one for each SURF unit
-        Omit is supposed to be channels omitted not surf units
-        Do we beamform a Unit then Units or do we beamform channels
-        """
-        beam = None
-        first = True
-        for i, surf in enumerate(self.values()):
-            for j, channel in enumerate(surf.channels):
-                try:
-                    if j in omit_list[i]:
-                        continue
-                except:
-                    pass
-                if first:
-                    beam = Waveform(waveform=channel.data.waveform)
-                    first = False
-                else:
-                    compare_data = channel.data
-                    corr = np.correlate(beam - beam.mean, compare_data - compare_data.mean, mode='full')
-                    lags = np.arange(-len(compare_data) + 1, len(beam))
-                    max_lag = lags[np.argmax(corr)]
+    def plot_unit_beamform(self):
+        unit_beamforms = self.beamform_units()
 
-                    compare_data.correlation_align(beam, max_lag)
-                    beam.waveform += compare_data
-        return beam
+        cols = len(unit_beamforms)%3
+        rows = int(np.ceil(len(unit_beamforms) / cols))
 
-    def plot_beamform(self, ax: plt.Axes=None, omit_list:list = []):
+        fig, axes = plt.subplots(rows, cols, figsize=(cols*5, rows*3))
+
+        axes = axes.flatten()
+
+        for i, unit_beamform in enumerate(unit_beamforms):
+            unit_beamform.plot_samples(ax=axes[i])
+            axes[i].set_title(unit_beamform.tag)
+            axes[i].legend()
+
+    def plot_beamform(self, ax: plt.Axes=None):
         if ax is None:
             fig, ax = plt.subplots()
-        beamform = self.beamform(omit_list=omit_list)
-        beamform.plot_waveform(ax = ax)
-        ax.set_ylabel('Time (ns)')
-        ax.set_ylabel('Raw ADC counts')
-        surfs = [unit.surf_index for unit in self.surf_info]
-        ax.set_title(f'SURF(s) {surfs} all channel beamform')
+        super().plot_beamform(ax)
+        ax.set_title(f'SURF(s) {[unit.surf_index for unit in self.unit_info]} all channel beamform')
+
+    def plot_beamform_samples(self, ax: plt.Axes=None):
+        if ax is None:
+            fig, ax = plt.subplots()
+        super().plot_beamform_samples(ax)
+        ax.set_title(f'SURF(s) {[unit.surf_index for unit in self.unit_info]} all channel beamform')
 
 if __name__ == '__main__':
     from SURF_Measurements.surf_data import SURFData
@@ -108,16 +114,18 @@ if __name__ == '__main__':
 
     parent_dir = current_dir.parents[1]
 
-    basepath = parent_dir / 'data'
+    basepath = parent_dir / 'data' / 'SURF_Data'
 
-    filepath = basepath / 'rftrigger_test' / 'mi1a_35.pkl'
+    filepath = basepath / 'rftrigger_test' / 'mi1a_150.pkl'
 
     surf_data = SURFData(filepath=filepath)
 
-    surf_indices = [5, 26]
+    surf_indices = [25,26]
 
-    surf_units = SURFUnits(data = surf_data.format_data(), surf_indices=surf_indices)
+    info = {'surf_index' : surf_indices}
 
-    surf_units.plot_beamform()
-    plt.legend()
+    surf_units = SURFUnits(data = surf_data.format_data(), info=info)
+
+    surf_units.plot_antenna_layout()
+    # plt.legend()
     plt.show()

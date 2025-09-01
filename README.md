@@ -17,8 +17,8 @@ One should retrive the data and use one of the following to store chosen informa
 
 For multiple triggers (files) one should loop through data and store them in
 
-- SURFChannelMultiple, Saves channel data for multiple triggers
+- SURFChannelTriggers, Saves channel data for multiple triggers
 
-- SURFUnitMultiple, Saves unit data for multiple triggers
+- SURFUnitTriggers, Saves unit data for multiple triggers
 
-- SURFUnitsMultiple, Saves multiple unit data for multiple triggers
+- SURFUnitsTriggers, Saves multiple unit data for multiple triggers

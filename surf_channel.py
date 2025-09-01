@@ -11,71 +11,80 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from SURF_Measurements.surf_channel_info import SURFChannelInfo
+from SURF_Measurements.surf_unit_info import SURFUnitInfo
 from RF_Utils.Pulse import Pulse
 from RF_Utils.Waveform import Waveform
 
 from typing import Any
 
-class SURFChannel(SURFChannelInfo):
+class SURFChannel(Pulse):
     """
-    Stores SURF channel data. Data needs to be provived. Subclasses could be made to do this automatically
+    Stores SURF channel data. Data needs to be provived. Subclasses could be made to do this automatically with naming conventions
 
     Assumes the inputted data is the correct 1-d array.
     """
-    def __init__(self, data:np.ndarray, surf_channel_name:str = None, surf_index:int = None, channel_index:int = None, run:int=None, sample_frequency:int = 3e9, surf_info: dict[str, Any] = {}, channel_info: dict[str, Any] = {}, *args, **kwargs):
-        super().__init__(info=channel_info, surf_info=surf_info, surf_channel_name = surf_channel_name, surf_channel_index = (surf_index, channel_index))
+    def __init__(self, data:np.ndarray|Pulse = None, info:SURFChannelInfo|dict = None, run:int=None, *args, **kwargs):
+
+        if isinstance(info, SURFChannelInfo):
+            self.info = info
+        elif isinstance(info, SURFUnitInfo):
+            self.info = SURFChannelInfo(**info.__dict__, **kwargs)
+        elif isinstance(info, dict):
+            self.info = SURFChannelInfo(**info)
+        else:
+            raise TypeError("Infomation input is not in the correct form.")
 
         self.run = run
 
         # tag = f"SURF : {self.surf_channel_name} / {self.surf_index}.{self.rfsoc_channel}" + (", run_"+str(self.run) if self.run is not None else "")
-        tag = f"SURF : {self.surf_channel_name} / {self.surf_index}.{self.rfsoc_channel}"
+        tag = f"SURF : {self.info.surf_channel_name} / {self.info.surf_index}.{self.info.rfsoc_channel}"
         
-        self.data = Pulse(waveform=data, sample_frequency=sample_frequency, tag=tag)
+        if isinstance(data, np.ndarray):
+            super().__init__(waveform=data, tag=tag)
+        elif isinstance(data, (Pulse, Waveform)):
+            self.__dict__.update(data.__dict__)
+        else:
+            raise ValueError("No Appropriate data included")
 
-    def __len__(self):
-        return len(self.data)
+    def __str__(self):
+        return self.info.__str__() + (f"\nRun : {self.run}\n" if self.run is not None else "")
     
-    def __iter__(self):
-        return iter(self.data)
-    
-    def __array__(self):
-        return self.data.waveform
+    def __deepcopy__(self, memo):
+        """
+        I messed up a lil, so this is necessary
+        """
+        import copy
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        
+        for k, v in self.__dict__.items():
+            setattr(result, k, copy.deepcopy(v, memo))
+        return result
 
+    def _match_primer(self, ref_pulse:Pulse = None) -> Pulse:
+        if not ref_pulse:
+            current_dir = Path(__file__).resolve()
+            parent_dir = current_dir.parents[1]
+
+            loaded_list = np.loadtxt(parent_dir / "SURF_Measurements" /"pulse.csv", delimiter=",", dtype=float)
+            ref_pulse = Pulse(waveform=np.array(loaded_list))
+        return ref_pulse
+    
     def plot_data(self, ax: plt.Axes=None, *args, **kwargs):
-        """
-        Plots data with time axis
-        """
         if ax is None:
             fig, ax = plt.subplots()
-
-        self.data.plot_waveform(ax=ax,**kwargs)
+        super().plot_waveform(ax=ax,**kwargs)
         ax.set_ylabel('Raw ADC counts')
 
     def plot_samples(self, ax: plt.Axes=None, *args, **kwargs):
-        """
-        Plots data with samples axis
-        """
         if ax is None:
             fig, ax = plt.subplots()
-
-        self.data.plot_samples(ax=ax,**kwargs)
+        super().plot_samples(ax=ax,**kwargs)
         ax.set_ylabel('Raw ADC counts')
 
     def plot_fft(self, ax: plt.Axes=None, f_start=0, f_stop=2000, log = True, scale = 1.0, **kwargs):
-        if ax is None:
-            fig, ax = plt.subplots()
-
-        xf = self.data.xf
-
-        mask = (xf >= f_start*1e6) & (xf <= f_stop*1e6)
-
-        self.data.plot_fft(ax=ax, log = log, mask=mask, scale=scale, **kwargs)
-
-    def extract_pulse_window(self, pre=20, post=120):
-        if isinstance(self.data, Pulse):
-            self.data.pulse_window(pre=pre, post=post)
-        else:
-            print("Warning: Data is not a Pulse instance, cannot extract pulse window")
+        super().plot_fft(ax=ax, log = log, f_start=f_start, f_stop=f_stop, scale=scale, **kwargs)
 
 if __name__ == '__main__':
     from SURF_Measurements.surf_data import SURFData
@@ -89,26 +98,21 @@ if __name__ == '__main__':
 
     filepath = parent_dir / 'data' / 'SURF_Data' / 'beamformertrigger' / '72825_beamformertriggertest1_1.pkl'
 
-
     surf_data = SURFData(filepath=filepath)
 
-    surf_index = 26
-    channel_index = 4
+    surf_index = 25
+    rfsoc_channel = 3
 
-    surf = SURFChannel(data = surf_data.format_data()[surf_index][channel_index], surf_index=surf_index, channel_index=channel_index)
-    
+
+    info = {"surf_index":surf_index,"rfsoc_channel":rfsoc_channel}
+
+    surf = SURFChannel(data = surf_data.format_data()[surf_index][rfsoc_channel], info=info)
+
     fig, ax = plt.subplots()
-
-
-    # surf.extract_pulse_window(100,200)
 
     surf.plot_samples(ax=ax)
 
-
-    print(surf.data.detect_energy())
-    print(surf.data.hilbert_envelope())
-    # fig, ax = plt.subplots()
-    # surf.plot_fft(ax=ax, f_start=300, f_stop=1200, log=True)
+    ax.set_title(surf.info.surf_channel_name)
 
     plt.legend()
     plt.show()
