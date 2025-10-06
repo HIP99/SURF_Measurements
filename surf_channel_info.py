@@ -30,7 +30,10 @@ class SURFChannelInfo(SURFUnitInfo, MIE_Channel):
             self.polarisation = self.surf_channel_name[2] if self.surf_channel_name.startswith("LF") else self.surf_channel_name[1]
             self.surf_unit = self.surf_channel_name[:1] if self.surf_channel_name.startswith("LF") else self.surf_channel_name[0]
 
-        SURFUnitInfo.__post_init__(self=self)
+        if all(getattr(self, f.name) is not None for f in fields(SURFUnitInfo)):
+            pass
+        else:
+            SURFUnitInfo.__post_init__(self=self)
 
         if self.surf_channel is not None and self.rfsoc_channel is None:
             self.rfsoc_channel = (int(self.surf_channel)+3)%8

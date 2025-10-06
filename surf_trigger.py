@@ -13,6 +13,7 @@ from SURF_Measurements.surf_channel_info import SURFChannelInfo
 from RF_Utils.Pulse import Pulse
 
 from typing import List, Dict, Any
+from matplotlib.ticker import MaxNLocator
 
 class SURFTrigger():
     def __init__(self, data:np.ndarray|List[SURFChannel], info:List[SURFChannelInfo]|Dict[str, List], run:int = None, *args, **kwargs):
@@ -20,6 +21,8 @@ class SURFTrigger():
         self.run=run
 
         self.info:List[SURFChannelInfo]
+
+        self.tag = ""
 
         if isinstance(info, dict):
             self.info = []
@@ -36,8 +39,6 @@ class SURFTrigger():
                 self.channels.append(SURFChannel(data = data[channel_info.surf_index][channel_info.rfsoc_channel], info=channel_info, run=self.run))
         elif isinstance(data[0], SURFChannel):
             self.channels = data
-
-        self.beamform_wf:Pulse = None
 
     def __len__(self):
         return len(self.channels)
@@ -107,13 +108,46 @@ class SURFTrigger():
             ncols=len(unique_sectors),
             figsize=(len(unique_sectors)*3, len(unique_rows)*2),
             squeeze=False
+            # ,sharey=True
         )
 
         fig.subplots_adjust(hspace=0.4)
 
         for row, sector, ch in parsed:
+            ch:SURFChannel
             ax = axes[row_idx_map[row]][sector_idx_map[sector]]
+            ax:plt.Axes
             ch.plot_samples(ax=ax)
+            ax.set_title(f"{ch.tag}", fontsize=12)
+            ax.xaxis.label.set_visible(False)
+            ax.yaxis.set_major_locator(MaxNLocator(nbins=7))
+            # ax.yaxis.label.set_visible(False)
+            
+        ##Removes empty axis (Antennas of no interrest)
+        for i in range(len(unique_rows)):
+            for j in range(len(unique_sectors)):
+                ax = axes[i][j]
+                if len(ax.lines) == 0:
+                    ax.axis("off")
+
+
+    def plot_antenna_fft(self, **kwargs):
+        parsed, unique_rows, unique_sectors, row_idx_map, sector_idx_map = self.organise_antennae()
+
+        fig, axes = plt.subplots(
+            nrows=len(unique_rows),
+            ncols=len(unique_sectors),
+            figsize=(len(unique_sectors)*3, len(unique_rows)*2),
+            squeeze=False
+        )
+
+        fig.subplots_adjust(hspace=0.4)
+
+        for row, sector, ch in parsed:
+            ch:SURFChannel
+            ax = axes[row_idx_map[row]][sector_idx_map[sector]]
+            ax:plt.Axes
+            ch.plot_fft(ax=ax, **kwargs)
             ax.set_title(f"{ch.tag}", fontsize=12)
             ax.xaxis.label.set_visible(False)
             # ax.yaxis.label.set_visible(False)
@@ -126,10 +160,38 @@ class SURFTrigger():
                     ax.axis("off")
 
     ########################
+    ## Analysis stuff
+    ########################
+
+    def cut_impulsivity(self, threshold = 0.65):
+        summed_waveform = self.coherent_sum()
+
+        power = summed_waveform.power
+        cumulative_power = np.cumsum(power)
+        cumulative_power /= cumulative_power[-1]
+
+        cross_idx = np.argmax(cumulative_power >= threshold)
+        threshold_index = 0.65 * summed_waveform.N
+        return cross_idx<threshold_index
+
+    ########################
     ## Beamform stuff
     ########################
-    
-    def beamform(self, ref_pulse:Pulse = None, window_size = 0.1, min_width=210-15, max_width=210+15, threshold_multiplier=1.8, center_width=5)->Pulse:
+
+    def coherent_sum(self) -> Pulse:
+        # sorted_channels = sorted(self.channels, key=lambda surf_channel: surf_channel.total_energy, reverse=True)
+        sorted_channels = sorted(self.channels, key=lambda surf_channel: surf_channel.snr, reverse=True)
+        summed_waveform = Pulse(waveform=sorted_channels[0].copy().waveform, tag = f"{self.tag} Coherent Sum", sample_frequency=3e9)
+        for channel in sorted_channels[1:]:
+            compare_data = channel.copy()
+
+            compare_data.cross_correlate(ref_pulse=summed_waveform)
+
+            summed_waveform.waveform+=compare_data.waveform
+
+        return summed_waveform
+
+    def matched_sum(self, ref_pulse:Pulse = None, window_size = 0.1, min_width=210-15, max_width=210+15, threshold_multiplier=1.8, center_width=5)->Pulse:
         if not ref_pulse:
             current_dir = Path(__file__).resolve()
             parent_dir = current_dir.parents[1]
@@ -137,7 +199,7 @@ class SURFTrigger():
             loaded_list = np.loadtxt(parent_dir / "SURF_Measurements" /"pulse.csv", delimiter=",", dtype=float)
             ref_pulse = Pulse(waveform=np.array(loaded_list))
 
-        beam = Pulse(waveform=np.zeros(1024), sample_frequency=3e9)
+        matched_sum = Pulse(waveform=np.zeros(1024), tag = f"{self.tag} matched sum", sample_frequency=3e9)
 
         omitted_channels = []
 
@@ -149,42 +211,37 @@ class SURFTrigger():
             if not max_lag:
                 omitted_channels.append(channel.info.surf_channel_name)
             else:
-                beam.waveform += compare_data.waveform
+                matched_sum.waveform += compare_data.waveform
 
-        print(f"Omitted {len(omitted_channels)} Channels\nOmitted Channels : {omitted_channels}")
-        self.beamform_wf = beam
-        return self.beamform_wf
+        percent_omitted = 100 * len(omitted_channels) / len(self)
+        print(f"Omitted {len(omitted_channels)} Channels - {percent_omitted:.4g}%")#\nOmitted Channels : {omitted_channels}")
 
-    def plot_beamform(self, ax: plt.Axes=None, ref_pulse:Pulse = None, window_size = 0.1, min_width=210-15, max_width=210+15, threshold_multiplier=1.8, center_width=5):
+        return matched_sum
+
+    def plot_matched_sum(self, ax: plt.Axes=None, ref_pulse:Pulse = None, window_size = 0.1, min_width=210-15, max_width=210+15, threshold_multiplier=1.8, center_width=5):
         if ax is None:
             fig, ax = plt.subplots()
-        if self.beamform_wf is None:
-            self.beamform(ref_pulse=ref_pulse, window_size=window_size, min_width=min_width, max_width=max_width, threshold_multiplier=threshold_multiplier, center_width=center_width)
-        self.beamform_wf.plot_waveform(ax = ax)
-        ax.set_ylabel('Time (ns)')
+        matched_sum = self.matched_sum()
+        matched_sum.plot_samples(ax = ax)
+        ax.set_ylabel('Samples')
         ax.set_ylabel('Raw ADC counts')
-        ax.set_title('SURF multi-channel beamform')
+        ax.set_title('SURF multi-channel matched sum')
 
-    def plot_beamform_samples(self, ax: plt.Axes=None, correlation_strength_coef=4, correlation_threshold = 120):
+    def plot_coherent_sum(self, ax: plt.Axes=None):
         if ax is None:
             fig, ax = plt.subplots()
-
-        if self.beamform_wf is None:
-            self.beamform(correlation_strength_coef, correlation_threshold)
-        
-        self.beamform_wf.plot_samples(ax = ax)
+        coherent_sum=self.coherent_sum()
+        coherent_sum.plot_samples(ax = ax)
+        ax.set_ylabel('Samples')
         ax.set_ylabel('Raw ADC counts')
-        ax.set_title(f'SURF {self.info.surf_unit} all channel beamform')
+        ax.set_title('SURF multi-channel coherent sum')
 
-    def plot_beamform_fft(self, ax: plt.Axes=None, f_start=300, f_stop=1200, log = True, scale = 1.0, **kwargs):
+    def plot_matched_sum_fft(self, ax: plt.Axes=None, f_start=300, f_stop=1200, log = True, scale = 1.0, **kwargs):
         if ax is None:
             fig, ax = plt.subplots()
 
-        if self.beamform_wf is None:
-            self.beamform()
-
-        self.beamform_wf.plot_fft_smoothed(ax=ax, log = log, f_start=f_start, f_stop=f_stop, scale=scale, **kwargs)
-
+        matched_sum = self.matched_sum()
+        matched_sum.plot_fft_smoothed(ax=ax, log = log, f_start=f_start, f_stop=f_stop, scale=scale, **kwargs)
 
 if __name__ == '__main__':
     from SURF_Measurements.surf_data import SURFData
@@ -215,17 +272,13 @@ if __name__ == '__main__':
 
     surf_channels = SURFTrigger(data = surf_data.format_data(), info=info, run=run)
 
-    # fig, ax = plt.subplots()
-
-    # surf_channels.plot_beamform(ax=ax)
-
     surf_channels.plot_antenna_layout()
 
+    surf_channels.plot_matched_sum()
 
-    surf_channels.plot_beamform()
+    surf_channels.plot_coherent_sum()
 
-    # surf_channels.remove_channel(surf_indices=(25, 6))
+    # surf_channels.plot_beamform_fft(f_start=0, f_stop=1500)
 
-    # surf_channels.plot_antenna_layout()
-
+    plt.legend()
     plt.show()

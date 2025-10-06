@@ -47,8 +47,6 @@ class SURFUnits(SURFTrigger):
         else:
             raise TypeError("Data was not inputted in a compatible format.")
 
-        self.beamform_wf:Pulse = None
-
     def __iter__(self):
         return iter(self.units)
 
@@ -72,41 +70,34 @@ class SURFUnits(SURFTrigger):
                     del self.channels[i]
                     break
 
-    def beamform_units(self) -> List[Pulse]:
-        unit_beamforms:List[Pulse] = []
+    def matched_sum_units(self) -> List[Pulse]:
+        unit_matched_sums:List[Pulse] = []
         for unit in self.units:
-            if not unit.beamform_wf:
-                unit.beamform()
-            unit.beamform_wf.tag = unit.tag
-            unit_beamforms.append(unit.beamform_wf)
-        return unit_beamforms
+            unit_matched_sum = unit.matched_sum()
+            unit_matched_sum.tag = unit.tag
+            unit_matched_sums.append(unit_matched_sum)
+        return unit_matched_sums
     
-    def plot_unit_beamform(self):
-        unit_beamforms = self.beamform_units()
+    def plot_unit_matched_sum(self):
+        unit_matched_sums = self.matched_sum_units()
 
-        cols = len(unit_beamforms)%3
-        rows = int(np.ceil(len(unit_beamforms) / cols))
+        cols = len(unit_matched_sums)%3
+        rows = int(np.ceil(len(unit_matched_sums) / cols))
 
         fig, axes = plt.subplots(rows, cols, figsize=(cols*5, rows*3))
 
         axes = axes.flatten()
 
-        for i, unit_beamform in enumerate(unit_beamforms):
-            unit_beamform.plot_samples(ax=axes[i])
-            axes[i].set_title(unit_beamform.tag)
+        for i, unit_matched_sum in enumerate(unit_matched_sums):
+            unit_matched_sum.plot_samples(ax=axes[i])
+            axes[i].set_title(unit_matched_sum.tag)
             axes[i].legend()
 
-    def plot_beamform(self, ax: plt.Axes=None):
+    def plot_matched_sum(self, ax: plt.Axes=None):
         if ax is None:
             fig, ax = plt.subplots()
-        super().plot_beamform(ax)
-        ax.set_title(f'SURF(s) {[unit.surf_index for unit in self.unit_info]} all channel beamform')
-
-    def plot_beamform_samples(self, ax: plt.Axes=None):
-        if ax is None:
-            fig, ax = plt.subplots()
-        super().plot_beamform_samples(ax)
-        ax.set_title(f'SURF(s) {[unit.surf_index for unit in self.unit_info]} all channel beamform')
+        super().plot_matched_sum(ax)
+        ax.set_title(f'SURF(s) {[unit.surf_index for unit in self.info]} all channel matched sum')
 
 if __name__ == '__main__':
     from SURF_Measurements.surf_data import SURFData

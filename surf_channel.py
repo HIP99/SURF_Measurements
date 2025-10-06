@@ -25,14 +25,7 @@ class SURFChannel(Pulse):
     """
     def __init__(self, data:np.ndarray|Pulse = None, info:SURFChannelInfo|dict = None, run:int=None, *args, **kwargs):
 
-        if isinstance(info, SURFChannelInfo):
-            self.info = info
-        elif isinstance(info, SURFUnitInfo):
-            self.info = SURFChannelInfo(**info.__dict__, **kwargs)
-        elif isinstance(info, dict):
-            self.info = SURFChannelInfo(**info)
-        else:
-            raise TypeError("Infomation input is not in the correct form.")
+        self.get_info(info, **kwargs)
 
         self.run = run
 
@@ -40,12 +33,16 @@ class SURFChannel(Pulse):
         tag = f"SURF : {self.info.surf_channel_name} / {self.info.surf_index}.{self.info.rfsoc_channel}"
         
         if isinstance(data, np.ndarray):
+            if data.ndim == 3:
+                data = data[self.info.surf_index][self.info.rfsoc_channel]
+            elif data.ndim == 2:
+                data = data[self.info.rfsoc_channel]
             super().__init__(waveform=data, tag=tag)
         elif isinstance(data, (Pulse, Waveform)):
             self.__dict__.update(data.__dict__)
         else:
             raise ValueError("No Appropriate data included")
-
+        
     def __str__(self):
         return self.info.__str__() + (f"\nRun : {self.run}\n" if self.run is not None else "")
     
@@ -71,6 +68,38 @@ class SURFChannel(Pulse):
             ref_pulse = Pulse(waveform=np.array(loaded_list))
         return ref_pulse
     
+    @property
+    def total_energy(self):
+        energy = self.power[:int(0.65*1024)]
+        return sum(energy)
+    
+
+    @property
+    def snr(self):
+        peak_energy = np.max(self.waveform[:int(0.65*1024)])
+        return peak_energy/self.rms
+
+
+    #####
+    ## Cuts
+    #####
+    ## If the rms isn't high enough. Say 50 idk
+    ## If the max output isn't high enough? (Aren't we trying to fill the bitwidth). Say 200 idk
+    ##
+
+    ## Maybe VPol vs HPol
+    ## Compare to opposite side of antenna. Some of these cuts require multiple thing
+
+    def get_info(self, info:SURFChannelInfo|dict = None, **kwargs):
+        if isinstance(info, SURFChannelInfo):
+            self.info = info
+        elif isinstance(info, SURFUnitInfo):
+            self.info = SURFChannelInfo(**info.__dict__, **kwargs)
+        elif isinstance(info, dict):
+            self.info = SURFChannelInfo(**info)
+        else:
+            raise TypeError("Infomation input is not in the correct form.")
+
     def plot_data(self, ax: plt.Axes=None, *args, **kwargs):
         if ax is None:
             fig, ax = plt.subplots()
@@ -83,7 +112,7 @@ class SURFChannel(Pulse):
         super().plot_samples(ax=ax,**kwargs)
         ax.set_ylabel('Raw ADC counts')
 
-    def plot_fft(self, ax: plt.Axes=None, f_start=0, f_stop=2000, log = True, scale = 1.0, **kwargs):
+    def plot_fft(self, ax: plt.Axes=None, f_start=300, f_stop=1200, log = True, scale = 1.0, **kwargs):
         super().plot_fft(ax=ax, log = log, f_start=f_start, f_stop=f_stop, scale=scale, **kwargs)
 
 if __name__ == '__main__':
@@ -96,23 +125,39 @@ if __name__ == '__main__':
     # filepath = parent_dir / 'data' / 'rftrigger_test2' / 'mi2a_35.pkl'
     # filepath = parent_dir / 'data' / 'SURF_Data' / '072925_beamformertest1' / '072925_beamformer_6db_1.pkl'
 
-    filepath = parent_dir / 'data' / 'SURF_Data' / 'beamformertrigger' / '72825_beamformertriggertest1_1.pkl'
+    # filepath = parent_dir / 'data' / 'SURF_Data' / 'beamformertrigger' / '72825_beamformertriggertest1_1.pkl'
+
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_test'
+    filename = 'mi1a_35.pkl'
+
+    # basepath = parent_dir / 'data' / 'SURF_Data' / '082625_AGCtest_all' / '082625_AGCtest_20dB'
+    # filename = '082625_AGCtest_1.pkl'
+
+    # basepath = parent_dir / 'data' / 'SURF_Data' / 'LF_tests' / 'testing_LF_072025_notches'    
+    # filename = 'testLF07252025_ampas_on_notcheson_0.pkl'
+
+    filepath = basepath/filename
 
     surf_data = SURFData(filepath=filepath)
 
-    surf_index = 25
+    surf_index = 26
     rfsoc_channel = 3
-
 
     info = {"surf_index":surf_index,"rfsoc_channel":rfsoc_channel}
 
     surf = SURFChannel(data = surf_data.format_data()[surf_index][rfsoc_channel], info=info)
 
-    fig, ax = plt.subplots()
+    # fig, ax = plt.subplots()
 
-    surf.plot_samples(ax=ax)
+    # surf.plot_samples(ax=ax)
 
-    ax.set_title(surf.info.surf_channel_name)
+    # ax.set_title(surf.info.surf_channel_name)
+
+    surf.plot_fft()
+
+    # surf.plot_power()
+    # surf.plot_cumulative_power()
+
 
     plt.legend()
     plt.show()

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from SURF_Measurements.surf_data import SURFData
+from SURF_Measurements.surf_unit import SURFUnit
 from SURF_Measurements.surf_units import SURFUnits
 from SURF_Measurements.surf_unit_triggers import SURFUnitTriggers
 from SURF_Measurements.surf_channel_triggers import SURFChannelTriggers
@@ -50,8 +51,8 @@ class SURFUnitsTriggers(SURFTriggers):
     def add_trigger(self, run:int):
         super().add_trigger(surf_type = SURFUnits, run=run)
 
-    def add_trigger(self, run:int):
-        super().add_trigger(surf_type = SURFUnits, run=run)
+    def add_trigger(self, run:int, surf_data = None):
+        super().add_trigger(surf_type = SURFUnits, run=run, surf_data=surf_data)
 
     def add_surfs(self, surf_indices:tuple):
         pass
@@ -67,32 +68,73 @@ class SURFUnitsTriggers(SURFTriggers):
     def units_triggers(self) -> List[SURFUnitTriggers]:
 
         unit_triggers:List[SURFUnitTriggers] = []
-        unit_triggers_arr = list(map(list, zip(*self.triggers)))
+        unit_triggers_arr:List[List[SURFUnit]] = list(map(list, zip(*self.triggers)))
 
         for unit_arr in unit_triggers_arr:
-            unit_triggers.append(SURFUnitTriggers(data=unit_arr))
+            unit_triggers.append(SURFUnitTriggers(info=unit_arr[0].info, data=unit_arr, basepath=self.basepath, filename = self.filename))
 
         return unit_triggers
 
-    def beamform_units(self) -> List[Pulse]:
-        unit_beamforms:List[Pulse] = []
+    def matched_sum_units(self) -> List[Pulse]:
+        unit_matched_sums:List[Pulse] = []
 
         unit_triggers = self.units_triggers
 
         for unit in unit_triggers:
-            unit_beamforms.append(unit.beamform())
+            unit_matched_sums.append(unit.matched_sum())
 
-        return unit_beamforms
+        return unit_matched_sums
+    
+    def coherent_sum_units(self) -> List[Pulse]:
+        unit_coherent_sums:List[Pulse] = []
 
-    def plot_average_beamform(self, ax: plt.Axes=None, omit_list:list = []):
-        if ax is None:
-            fig, ax = plt.subplots()
-        beamform = self.beamform(omit_list=omit_list)
-        beamform.plot_waveform(ax = ax)
-        ax.set_ylabel('Time (ns)')
-        ax.set_ylabel('Raw ADC counts')
-        surfs = [unit.surf_index for unit in self.surf_info]
-        ax.set_title(f'SURF {surfs}, {self.length} runs Beamform')
+        unit_triggers = self.units_triggers
+
+        for unit in unit_triggers:
+            unit_coherent_sums.append(unit.coherent_sum())
+
+        return unit_coherent_sums
+    
+    def plot_unit_matched_sum(self, **kwargs):
+        channel_matched_sums: List[Pulse] = self.matched_sum_units()
+        n = len(channel_matched_sums)
+        fig, axs = plt.subplots(n, 1, figsize=(10, 3 * n), sharex=True)
+
+        # If only one axis, make axs a list for consistency
+        if n == 1:
+            axs = [axs]
+
+        for ax, unit_matched_sum in zip(axs, channel_matched_sums):
+            ax:plt.Axes
+            unit_matched_sum.plot_samples(ax=ax, **kwargs)
+            ax.set_xlabel('Samples')
+            ax.set_ylabel('ADC Counts')
+            ax.set_title(unit_matched_sum.tag if hasattr(unit_matched_sum, "tag") else "Matched Sum")
+
+        plt.tight_layout()
+        return fig, axs
+    
+    def plot_unit_coherent_sum(self, **kwargs):
+        channel_coherent_sums: List[Pulse] = self.coherent_sum_units()
+        n = len(channel_coherent_sums)
+        fig, axs = plt.subplots(n, 1, figsize=(10, 3 * n), sharex=True)
+
+        # If only one axis, make axs a list for consistency
+        if n == 1:
+            axs = [axs]
+
+        for ax, unit_coherent_sum in zip(axs, channel_coherent_sums):
+            ax:plt.Axes
+            unit_coherent_sum.plot_samples(ax=ax, **kwargs)
+            ax.set_xlabel('Samples')
+            ax.set_ylabel('ADC Counts')
+            ax.set_title(unit_coherent_sum.tag if hasattr(unit_coherent_sum, "tag") else " Sum")
+
+        plt.tight_layout()
+        return fig, axs
+    
+    
+
 
 if __name__ == '__main__':
 
@@ -110,5 +152,5 @@ if __name__ == '__main__':
 
     surf_triggers = SURFUnitsTriggers(basepath=basepath, filename=filename, length=5, info=info)
 
-    surf_triggers.plot_channel_beamform()
+    surf_triggers.plot_unit_coherent_sum()
     plt.show()

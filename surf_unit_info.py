@@ -22,7 +22,6 @@ class SURFUnitInfo:
         return {f.name: getattr(self, f.name) for f in fields(self)}
 
     def __post_init__(self):
-
         if self.surf_unit is not None:
             if not (len(self.surf_unit) == 1):
                 self.polarisation = self.surf_unit[2] if self.surf_unit.startswith("LF") else self.surf_unit[1]

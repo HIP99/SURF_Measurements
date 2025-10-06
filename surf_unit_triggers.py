@@ -44,71 +44,18 @@ class SURFUnitTriggers(SURFTriggers):
     def populate_triggers(self):
         super().populate_triggers(surf_type = SURFUnit)
 
-    def add_trigger(self, run:int):
-        super().add_trigger(surf_type = SURFUnit, run=run)
+    def add_trigger(self, run:int, surf_data = None):
+        super().add_trigger(surf_type = SURFUnit, run=run, surf_data=surf_data)
 
-    def unit_trigger_beamform(self, **kwargs)->List[Pulse]:
-        trigger_beamforms:List[Pulse] = []
+    def unit_trigger_matched_sum(self, **kwargs)->List[Pulse]:
+        trigger_matched_sums:List[Pulse] = []
 
         for trigger in self.triggers:
-            trigger.beamform(**kwargs)
-            trigger_beamforms.append(trigger.beamform_wf)
+            trigger.matched_sum(**kwargs)
+            trigger_matched_sums.append(trigger.matched_sum(**kwargs))
 
-        return trigger_beamforms
+        return trigger_matched_sums
     
-    def plot_average_beamform(self, ax: plt.Axes=None, correlation_strength_coef=4, correlation_threshold = 120):
-        if ax is None:
-            fig, ax = plt.subplots()
-        if self.beamform_wf is None:
-            self.overall_beamform(correlation_strength_coef=correlation_strength_coef, correlation_threshold = correlation_threshold)
-        self.beamform_wf.plot_waveform(ax = ax)
-        ax.set_ylabel('Time (ns)')
-        ax.set_ylabel('Raw ADC counts')
-        # ax.set_title(f'Test : {self.basepath.stem} - {self.tag} , {self.length} runs Beamform')
-        ax.set_title(f'Test : {self.filename} - {self.tag} , {self.length} runs Beamform')
-
-    def plot_average_beamform_samples(self, ax: plt.Axes=None, correlation_strength_coef=4, correlation_threshold = 120, **kwargs):
-        if ax is None:
-            fig, ax = plt.subplots()
-        if self.beamform_wf is None:
-            self.overall_beamform(correlation_strength_coef=correlation_strength_coef, correlation_threshold = correlation_threshold)
-        self.beamform_wf.plot_samples(ax = ax, **kwargs)
-        ax.set_ylabel('Raw ADC counts')
-        # ax.set_title(f'Test : {self.basepath.stem} - {self.tag} , {self.length} runs Beamform')
-        ax.set_title(f'Test : {self.filename} - {self.tag} , {self.length} runs Beamform')
-
-    def plot_channel_beams(self, correlation_strength_coef=4.5, correlation_threshold = 128, **kwargs):
-        fig, axs = plt.subplots(4, 2, figsize=(12, 10), sharex=True)
-
-        channel_beams = self.channel_beamform(correlation_strength_coef=correlation_strength_coef, correlation_threshold=correlation_threshold)
-
-        for i in range(8):
-            if i < 4:
-                channel = channel_beams[i + 4]  # channels 4 to 7
-                col = 0
-                row = i
-            else:
-                channel = channel_beams[i - 4]  # channels 0 to 3
-                col = 1
-                row = i - 4
-
-            channel.plot_samples(ax=axs[row, col])
-            axs[row, col].set_title(f"{channel.tag}")
-            # stats_text = f"Pulse Quality: {channel.pulse_quality():.2f}"
-            # axs[row, col].text(
-            #     0.95, 0.95, stats_text,
-            #     transform=axs[row, col].transAxes,
-            #     fontsize=10,
-            #     verticalalignment='top',
-            #     horizontalalignment='right',
-            #     bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
-            # )
-            # axs[row, col].set_ylim(-1000, 1000)
-
-        # fig.suptitle(f"Test : {self.basepath.stem} - Channel Beamforms for {self.tag} ({self.length} runs)", fontsize=12)
-        fig.suptitle(f"Test : {self.filename} - Channel Beamforms for {self.tag} ({self.length} runs)", fontsize=12)
-
-        plt.tight_layout()
 
 if __name__ == '__main__':
 
@@ -122,21 +69,15 @@ if __name__ == '__main__':
     basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_test' 
     filename = 'mi1a'
 
-    # basepath = parent_dir / 'data' / 'SURF_Data' / 'beamformertrigger' 
-    # filename = '72825_beamformertriggertest1'
 
-    # basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_all_10dboff' 
-    # filename = 'mi1a'
-
-    # basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_test2' 
-    # filename = 'mi2a'
-
+    # basepath = parent_dir / 'data' / 'SURF_Data' / '082625_AGCtest_all' / '082625_AGCtest_0dB'
+    # filename = '082625_AGCtest0'
 
     surf_index = 26
 
     info = {'surf_index':surf_index}
 
-    surf_triggers = SURFUnitTriggers(basepath=basepath, filename=filename, length=10, info=info)
+    surf_triggers = SURFUnitTriggers(basepath=basepath, filename=filename, info=info)
 
     # channels = surf_triggers.channels
     # arr=[]
@@ -148,6 +89,6 @@ if __name__ == '__main__':
     #     temp=[]
     # print(arr)
 
-    surf_triggers.plot_channel_beamform()
+    surf_triggers.plot_channel_matched_sum()
 
     plt.show()

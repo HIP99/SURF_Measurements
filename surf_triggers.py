@@ -37,6 +37,8 @@ class SURFTriggers():
         self.triggers : List[SURFTrigger]
         self.info : List[SURFChannelInfo]
 
+        self.tag=None
+
         if isinstance(info, dict):
             self.info = []
             for values in zip(*info.values()):
@@ -60,17 +62,18 @@ class SURFTriggers():
         else:
             self.triggers = []
             self.populate_triggers()
-
-        self.beamform_wf:Pulse = None
                 
     def __iter__(self):
         return iter(self.triggers)
     
-    def __getitem__(self, run):
+    def __getitem__(self, run)->SURFTrigger:
         return self.triggers[run]
     
-    def __array__(self):
+    def __array__(self)->list[SURFTrigger]:
         return self.triggers
+    
+    def __len__(self):
+        return len(self.triggers) * len(self.triggers[0])
     
     ########
     ## Data Handling
@@ -86,9 +89,12 @@ class SURFTriggers():
             surf_data = self.get_trigger_data(run=run)
             self.triggers.append(surf_type(data=surf_data.format_data(), info=self.info, run=run))
 
-    def add_trigger(self, surf_type:SURFTrigger, run:int):
-        surf_data = self.get_trigger_data(run=run)
-        self.triggers.append(surf_type(data=surf_data.format_data(), info=self.info))
+    def add_trigger(self, surf_type:SURFTrigger, run:int, surf_data=None):
+        if surf_data is None:
+            surf_data = self.get_trigger_data(run=run)
+            surf_data = surf_data.format_data()
+
+        self.triggers.append(surf_type(data=surf_data, info=self.info, run=run))
 
     @property
     def channels(self) -> List[List[SURFChannel]]:
@@ -126,33 +132,70 @@ class SURFTriggers():
     ## Beamforming
     ########
 
-    def beamform_channels(self, **kwargs) -> SURFTrigger:
-        channel_beamform:List[SURFChannel] = []
+    def coherent_sum_channels(self) -> Pulse:
+        channel_sum:List[SURFChannel] = []
         channel_trigger_arr = self.channels_triggers
         for channel_trigger in channel_trigger_arr:
-            channel_trigger.beamform(**kwargs)
-            channel_beamform.append(SURFChannel(data=channel_trigger.beamform_wf, info=channel_trigger.info, tag = channel_trigger.tag))
+            channel_sum.append(SURFChannel(data=channel_trigger.coherent_sum(), info=channel_trigger.info, tag = channel_trigger.tag))
 
-        channel_beamform_instance = SURFTrigger(data=channel_beamform, info=[ch.info for ch in channel_beamform])
-        return channel_beamform_instance
+        channel_sum_instance = SURFTrigger(data=channel_sum, info=[ch.info for ch in channel_sum])
+        return channel_sum_instance
 
-    def beamform_triggers(self, **kwargs) -> List[Pulse]:
-        trigger_beamform_arr:List[Pulse] = []
+    def coherent_sum_triggers(self) -> Pulse:
+        trigger_sum_arr:List[Pulse] = []
         for trigger in self.triggers:
-            trigger.beamform(**kwargs)
-            trigger_beamform_arr.append(trigger.beamform_wf)
+            trigger_sum_arr.append(trigger.coherent_sum())
 
-        return trigger_beamform_arr
+        return trigger_sum_arr
 
-    def beamform(self, ref_pulse:Pulse = None, window_size = 0.1, min_width=210-15, max_width=210+15, threshold_multiplier=1.8, center_width=5) -> Pulse:
+    def coherent_sum(self) -> Pulse:
+        all_channel_trigger_arr = [ch for trigger in self.triggers for ch in trigger]
+        sorted_data = sorted(all_channel_trigger_arr, key=lambda surf_channel: surf_channel.snr, reverse=True)
+        summed_waveform = Pulse(waveform=sorted_data[0].copy().waveform, tag = f"{self.tag} Sum", sample_frequency=3e9)
+        
+        ## alignment drift can be avoided by centering the sum near the beginning
+        check_index = 10
+
+        for channel in sorted_data[1:check_index]:
+            compare_data = channel.copy()
+            compare_data.cross_correlate(ref_pulse=summed_waveform)
+            summed_waveform.waveform += compare_data.waveform
+
+        summed_waveform.center_on_peak()
+
+        for channel in sorted_data[check_index:]:
+            compare_data = channel.copy()
+            compare_data.cross_correlate(ref_pulse=summed_waveform)
+            summed_waveform.waveform += compare_data.waveform
+
+        return summed_waveform
+
+    def matched_sum_channels(self, **kwargs) -> SURFTrigger:
+        channel_matched_sum:List[SURFChannel] = []
+        channel_trigger_arr = self.channels_triggers
+        for channel_trigger in channel_trigger_arr:
+            channel_matched_sum.append(SURFChannel(data=channel_trigger.matched_sum(**kwargs), info=channel_trigger.info, tag = channel_trigger.tag))
+
+        channel_matched_sum_instance = SURFTrigger(data=channel_matched_sum, info=[ch.info for ch in channel_matched_sum])
+        return channel_matched_sum_instance
+
+    def matched_sum_triggers(self, **kwargs) -> List[Pulse]:
+        trigger_matched_sum_arr:List[Pulse] = []
+        for trigger in self.triggers:
+            trigger.matched_sum(**kwargs)
+            trigger_matched_sum_arr.append(trigger.matched_sum(**kwargs))
+
+        return trigger_matched_sum_arr
+
+    def matched_sum(self, ref_pulse:Pulse = None, window_size = 0.1, min_width=210-15, max_width=210+15, threshold_multiplier=1.8, center_width=5) -> Pulse:
         if not ref_pulse:
             current_dir = Path(__file__).resolve()
             parent_dir = current_dir.parents[1]
 
             loaded_list = np.loadtxt(parent_dir / "SURF_Measurements" /"pulse.csv", delimiter=",", dtype=float)
-            ref_pulse = Pulse(waveform=np.array(loaded_list))
+            ref_pulse = Pulse(waveform=np.array(loaded_list), tag = "ref_pulse")
 
-        beam = Pulse(waveform=np.zeros(1024), sample_frequency=3e9)
+        matched_sum = Pulse(waveform=np.zeros(1024), sample_frequency=3e9, tag=f"{self.tag} matched sum")
 
         omitted_events = []
 
@@ -165,11 +208,12 @@ class SURFTriggers():
                 if not max_lag:
                     omitted_events.append((channel.info.surf_channel_name, channel.run))
                 else:
-                    beam.waveform += compare_data.waveform
+                    matched_sum.waveform += compare_data.waveform
 
-        print(f"Omitted {len(omitted_events)} Events\nOmitted Events : {omitted_events}")
-        self.beamform_wf = beam
-        return self.beamform_wf
+        percent_omitted = 100 * len(omitted_events) / len(self)
+        print(f"Omitted {len(omitted_events)} Events - {percent_omitted:.4g}%")#\nOmitted Events : {omitted_events}")
+
+        return matched_sum
 
     ########
     ## Plots
@@ -181,27 +225,47 @@ class SURFTriggers():
         channel.plot_samples(ax=ax, **kwargs)
         ax.set_ylabel("Raw ADC counts")
 
-    def plot_beamform(self, ax: plt.Axes=None, **kwargs):
+    def plot_matched_sum(self, ax: plt.Axes=None, **kwargs):
         if ax is None:
             fig, ax = plt.subplots()
 
-        beamform:Pulse = self.beamform()
-
-        beamform.plot_samples(ax = ax, **kwargs)
+        matched_sum = self.matched_sum()
+        matched_sum.plot_samples(ax = ax, **kwargs)
         ax.set_ylabel('Raw ADC counts')
-        ax.set_title(f'Test : {self.filename}, {self.length} runs Beamform')
+        ax.set_title(f'Test : {self.filename}, {self.length} runs matched sum')
 
-    def plot_trigger_beamform(self, ax: plt.Axes=None, **kwargs):
+    def plot_trigger_matched_sum(self, ax: plt.Axes=None, **kwargs):
         """
         Due to the number of triggers this may be horrible
         """
         if ax is None:
             fig, ax = plt.subplots()
 
-    def plot_channel_beamform(self):
-        channel_beamforms:SURFTrigger = self.beamform_channels()
-        channel_beamforms.plot_antenna_layout()
+    def plot_channel_matched_sum(self):
+        channel_matched_sums:SURFTrigger = self.matched_sum_channels()
+        channel_matched_sums.plot_antenna_layout()
 
+
+    def plot_sum(self, ax: plt.Axes=None, **kwargs):
+        if ax is None:
+            fig, ax = plt.subplots()
+
+        coherent_sum:Pulse = self.coherent_sum()
+
+        coherent_sum.plot_samples(ax = ax, **kwargs)
+        ax.set_ylabel('Raw ADC counts')
+        ax.set_title(f'Test : {self.filename}, {self.length} runs Coherent Sum')
+
+    def plot_trigger_sum(self, ax: plt.Axes=None, **kwargs):
+        """
+        Due to the number of triggers this may be horrible
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+
+    def plot_channel_sum(self):
+        channel_sums:SURFTrigger = self.coherent_sum_channels()
+        channel_sums.plot_antenna_layout()
 
 
 if __name__ == '__main__':
@@ -219,8 +283,10 @@ if __name__ == '__main__':
 
     info = {'surf_channel_name':surf_channel_name}
 
-    surf_triggers = SURFTriggers(basepath=basepath, filename=filename, length=5, info=info)
+    surf_triggers = SURFTriggers(basepath=basepath, filename=filename, length=500, info=info)
 
-    surf_triggers.plot_channel_beamform()
-
+    # surf_triggers.plot_beamform()
+    # surf_triggers.plot_sum()
+    surf_triggers.plot_channel_matched_sum()
+    surf_triggers.plot_channel_sum()
     plt.show()

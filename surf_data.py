@@ -138,11 +138,19 @@ if __name__ == '__main__':
 
     # filename = 'SURFAH1_0.pkl'
 
-    basepath = parent_dir / 'data' / 'SURF_Data' / '072925_beamformertest1'
-    filename = '072925_beamformer_6db_0.pkl'
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'glitch_tests' / '082725_MTS' / '082725_glitchtests 2'
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'glitch_tests' / '082725_MTS' / '082725_glitchtests' / 'ampoff_60min'
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'LF_tests' / 'testing_LF_072025_notches'
+    
+    filename = 'testLF07252025_ampas_on_notcheson_0.pkl'
+
+    # basepath = parent_dir / 'data' / 'SURF_Data'
+    # filename = 'Beams48.pkl'
 
     pckl = SURFData(filepath = basepath/filename)
 
+
+    # data = pckl.format_data_multiple()
     data = pckl.format_data()
 
     fig, ax = plt.subplots()

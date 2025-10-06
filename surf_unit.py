@@ -66,30 +66,32 @@ if __name__ == '__main__':
 
     # filepath = parent_dir / 'data' / 'SURF_Data' / '072925_beamformertest1' / f'072925_beamformer_6db_{run}.pkl'
 
+    basepath = parent_dir / 'data' / 'SURF_Data' / 'rftrigger_test'
+    filename = 'mi1a_101.pkl'
+
+    # basepath = parent_dir / 'data' / 'SURF_Data' / '082625_AGCtest_all' / '082625_AGCtest_10dB'
+    # filename = '082625_AGCtest_1.pkl'
+
+    # basepath = parent_dir / 'data' / 'SURF_Data' / 'LF_tests' / 'testing_LF_072025_notches'
+    # filename = 'testLF07252025_ampas_on_notcheson_99.pkl'
+
+    filepath = basepath/filename
+
     surf_data = SURFData(filepath=filepath)
     surf_index = 26
 
     info = {'surf_index' : surf_index}
 
     surf_unit = SURFUnit(data = surf_data.format_data(), info=info, run=run)
-    # surf_unit.plot_unit_grid()
 
-    # fig, ax = plt.subplots()
 
     surf_unit.plot_antenna_layout()
 
     surf_unit.plot_beamform()
 
-    # fig, ax = plt.subplots()
-    # surf_unit.plot_beamform(ax=ax)
-    # ax.set_title(f'SURF : 26/AV, all channel beamform, rftrigger_test/mi1a_35.pkl')
+    surf_unit.plot_coherent_sum()
 
+    # surf_channels.plot_beamform_fft(f_start=0, f_stop=1500)
 
-
-    # surf_unit.plot_beamform_fft()
-
-    # surf_unit.extract_pulse_window(pre=25, post=125)
-    # surf_unit.plot_fft_grid(scale = len(surf_unit)/2)
-
-
+    plt.legend()
     plt.show()
